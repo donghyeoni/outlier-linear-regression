@@ -1,5 +1,7 @@
 # Outliers & Gradient-Based Optimization for Linear Regression
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
+
 A pure-NumPy study of how hand-coded gradient-based optimizers behave on
 synthetic linear regression, and of how a small outlier population distorts the
 fit. Everything is implemented from scratch (no scikit-learn, no autograd) so
