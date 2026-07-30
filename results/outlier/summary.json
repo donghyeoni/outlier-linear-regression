@@ -1,0 +1,14 @@
+{
+  "part1_oracle_clean": {
+    "estimation_error_clean": 0.010153718767338477,
+    "weight_error_l2": 0.029211322573062835
+  },
+  "part2_naive_all": {
+    "estimation_error_clean": 0.02741586769641318,
+    "weight_error_l2": 0.1312355251663121
+  },
+  "part4_ours": {
+    "final_mse": 0.011939552863831603,
+    "final_weight_error": 0.14898023838728852
+  }
+}

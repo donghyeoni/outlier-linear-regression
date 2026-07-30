@@ -15,6 +15,7 @@ Usage
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -29,7 +30,8 @@ from src.train import run_experiment
 from src.outlier_removal import ours
 from src.plots import plot_curves
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(REPO_ROOT, "results", "outlier")
 
 
 def main():
@@ -42,18 +44,24 @@ def main():
     # --- Part 1: oracle fit on the clean population only --------------------
     w_y1 = closed_form_solution(X[clean_mask], y[clean_mask], method="pinv")
     y_pred = X @ w_y1
+    part1 = {
+        "estimation_error_clean": float(estimation_error(y[clean_mask], y_pred[clean_mask])),
+        "weight_error_l2": float(weight_error(w_y1, w1)),
+    }
     print("=== Part 1: fit on clean population (z==1) only ===")
-    print(f"Estimation Error (z==1 only): "
-          f"{estimation_error(y[clean_mask], y_pred[clean_mask]):.6f}")
-    print(f"Weight Error (L2 norm):      {weight_error(w_y1, w1):.6f}\n")
+    print(f"Estimation Error (z==1 only): {part1['estimation_error_clean']:.6f}")
+    print(f"Weight Error (L2 norm):      {part1['weight_error_l2']:.6f}\n")
 
     # --- Part 2: naive fit on all (contaminated) data -----------------------
     w_all = closed_form_solution(X, y, method="pinv")
     y_pred = X @ w_all
+    part2 = {
+        "estimation_error_clean": float(estimation_error(y[clean_mask], y_pred[clean_mask])),
+        "weight_error_l2": float(weight_error(w_all, w1)),
+    }
     print("=== Part 2: fit on all data (contaminated) ===")
-    print(f"Estimation Error (z==1 only): "
-          f"{estimation_error(y[clean_mask], y_pred[clean_mask]):.6f}")
-    print(f"Weight Error (L2 norm):      {weight_error(w_all, w1):.6f}\n")
+    print(f"Estimation Error (z==1 only): {part2['estimation_error_clean']:.6f}")
+    print(f"Weight Error (L2 norm):      {part2['weight_error_l2']:.6f}\n")
 
     # --- Part 3: optimizer grid, evaluated on the clean population ----------
     print("=== Part 3: optimizer grid (evaluated on z==1) ===")
@@ -61,6 +69,7 @@ def main():
         X, y, w1, learning_rate=0.01, num_epochs=1000, batch_size=32,
         record="eval", eval_X=X, eval_y=y, eval_mask=clean_mask, seed=0)
     print(df.to_string())
+    df.to_csv(os.path.join(OUT_DIR, "optimizer_grid.csv"), index=False)
     print()
 
     # --- Part 4: "ours" (periodic residual removal + re-init) ---------------
@@ -75,6 +84,16 @@ def main():
         "Final Weight Error": round(w_hist[-1], 6),
     }])
     print(summary.to_string(index=False))
+
+    with open(os.path.join(OUT_DIR, "summary.json"), "w") as f:
+        json.dump({
+            "part1_oracle_clean": part1,
+            "part2_naive_all": part2,
+            "part4_ours": {
+                "final_mse": float(est_hist[-1]),
+                "final_weight_error": float(w_hist[-1]),
+            },
+        }, f, indent=2)
     print()
 
     # --- Part 5: learning-rate sweep of "ours" ------------------------------
@@ -89,8 +108,8 @@ def main():
         curves[f"lr = {lr}"] = w_hist
     plot_curves(curves, xlabel="Epoch", ylabel="Weight Error (L2 norm)",
                 title="ours: weight-error convergence by learning rate",
-                save_path=os.path.join(OUT_DIR, "outlier_lr_sweep.png"))
-    print(f"Plot saved to {OUT_DIR}")
+                save_path=os.path.join(OUT_DIR, "lr_sweep.png"))
+    print(f"\nArtifacts saved to {OUT_DIR}")
 
 
 if __name__ == "__main__":

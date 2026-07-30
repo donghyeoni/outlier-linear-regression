@@ -48,14 +48,16 @@ outlier-linear-regression/
 │   ├── outlier_removal.py  # the custom "ours" method
 │   └── plots.py            # convergence-plot helpers
 ├── experiments/
-│   ├── run_baseline.py     # reproduces notebook 1
-│   └── run_outlier.py      # reproduces notebook 2 (parts + "ours")
-├── notebooks/
-│   ├── Deeplearning_1.ipynb
-│   └── Deeplearning_2.ipynb
+│   ├── run_all.py          # regenerate every results/ artifact in one command
+│   ├── run_baseline.py     # baseline optimizer benchmark (clean data)
+│   └── run_outlier.py      # outlier study + "ours"
+├── results/                # committed artifacts (figures + metrics), see RESULTS.md
+│   ├── baseline/           # closed_form.json, optimizer_grid.csv, *.png
+│   └── outlier/            # summary.json, optimizer_grid.csv, lr_sweep.png
 ├── docs/
 │   └── Analyzing the Impact of Outliers ... .pdf   # project report
 ├── requirements.txt
+├── RESULTS.md              # rendered results with figures and tables
 ├── .gitignore
 └── README.md
 ```
@@ -74,12 +76,16 @@ pip install -r requirements.txt
 Run from the repository root:
 
 ```bash
+python experiments/run_all.py         # regenerate everything under results/
+# or individually:
 python experiments/run_baseline.py    # clean-data optimizer benchmark
 python experiments/run_outlier.py     # outlier study + "ours"
 ```
 
-Each script prints its result tables to stdout and writes convergence plots to
-`experiments/outputs/` (created automatically).
+Each script prints its result tables to stdout and writes figures + metrics
+(`.png`, `.csv`, `.json`) to `results/` (created automatically). These
+artifacts are committed to the repository — see **[RESULTS.md](RESULTS.md)** for
+the rendered figures and summary tables.
 
 You can also import the modules directly:
 

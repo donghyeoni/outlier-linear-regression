@@ -8,9 +8,10 @@ venv/
 # Jupyter
 .ipynb_checkpoints/
 
-# Experiment plot outputs (optional)
+# Stray plot outputs; the committed results/ artifacts are kept (see below)
 experiments/outputs/
 *.png
+!results/**
 
 # OS
 .DS_Store
