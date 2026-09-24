@@ -1,0 +1,7 @@
+{
+  "slope_true": 1.0,
+  "slope_clean_fit": 1.0084623766469396,
+  "slope_all_fit": 0.8408762859995262,
+  "n_points": 200,
+  "n_outliers": 20
+}

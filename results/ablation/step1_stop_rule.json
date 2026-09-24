@@ -1,0 +1,327 @@
+[
+  {
+    "learning_rate": 0.01,
+    "stop_k": null,
+    "final_weight_error": 0.14653616790310103,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "stopped_at_cycle": null,
+    "outliers_removed_per_prune": [
+      72,
+      20,
+      0,
+      0
+    ],
+    "kept": 656,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.01,
+    "stop_k": 2.5,
+    "final_weight_error": 0.10327895802203087,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      200,
+      400
+    ],
+    "stopped_at_cycle": 3,
+    "outliers_removed_per_prune": [
+      72,
+      20,
+      0
+    ],
+    "kept": 729,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.01,
+    "stop_k": 3.0,
+    "final_weight_error": 0.0981617018065056,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      72,
+      20
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.01,
+    "stop_k": 3.5,
+    "final_weight_error": 0.0981617018065056,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      72,
+      20
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.01,
+    "stop_k": 4.0,
+    "final_weight_error": 0.0981617018065056,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      72,
+      20
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.01,
+    "stop_k": 5.0,
+    "final_weight_error": 0.16410093796825118,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      1000
+    ],
+    "stopped_at_cycle": 0,
+    "outliers_removed_per_prune": [],
+    "kept": 1000,
+    "outliers_left": 92
+  },
+  {
+    "learning_rate": 0.1,
+    "stop_k": null,
+    "final_weight_error": 0.0433534659052155,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "stopped_at_cycle": null,
+    "outliers_removed_per_prune": [
+      89,
+      3,
+      0,
+      0
+    ],
+    "kept": 656,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.1,
+    "stop_k": 2.5,
+    "final_weight_error": 0.03174098353116347,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      89,
+      3
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.1,
+    "stop_k": 3.0,
+    "final_weight_error": 0.03174098353116347,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      89,
+      3
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.1,
+    "stop_k": 3.5,
+    "final_weight_error": 0.03174098353116347,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      89,
+      3
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.1,
+    "stop_k": 4.0,
+    "final_weight_error": 0.030066349035014775,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      800
+    ],
+    "stopped_at_cycle": 1,
+    "outliers_removed_per_prune": [
+      89
+    ],
+    "kept": 900,
+    "outliers_left": 3
+  },
+  {
+    "learning_rate": 0.1,
+    "stop_k": 5.0,
+    "final_weight_error": 0.030066349035014775,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      800
+    ],
+    "stopped_at_cycle": 1,
+    "outliers_removed_per_prune": [
+      89
+    ],
+    "kept": 900,
+    "outliers_left": 3
+  },
+  {
+    "learning_rate": 0.5,
+    "stop_k": null,
+    "final_weight_error": 0.04334594615216843,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "stopped_at_cycle": null,
+    "outliers_removed_per_prune": [
+      89,
+      3,
+      0,
+      0
+    ],
+    "kept": 656,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.5,
+    "stop_k": 2.5,
+    "final_weight_error": 0.031740983531195796,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      89,
+      3
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.5,
+    "stop_k": 3.0,
+    "final_weight_error": 0.031740983531195796,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      89,
+      3
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.5,
+    "stop_k": 3.5,
+    "final_weight_error": 0.031740983531195796,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      200,
+      600
+    ],
+    "stopped_at_cycle": 2,
+    "outliers_removed_per_prune": [
+      89,
+      3
+    ],
+    "kept": 810,
+    "outliers_left": 0
+  },
+  {
+    "learning_rate": 0.5,
+    "stop_k": 4.0,
+    "final_weight_error": 0.030066503685343124,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      800
+    ],
+    "stopped_at_cycle": 1,
+    "outliers_removed_per_prune": [
+      89
+    ],
+    "kept": 900,
+    "outliers_left": 3
+  },
+  {
+    "learning_rate": 0.5,
+    "stop_k": 5.0,
+    "final_weight_error": 0.030066503685343124,
+    "total_epochs": 1000,
+    "cycle_epochs": [
+      200,
+      800
+    ],
+    "stopped_at_cycle": 1,
+    "outliers_removed_per_prune": [
+      89
+    ],
+    "kept": 900,
+    "outliers_left": 3
+  }
+]
