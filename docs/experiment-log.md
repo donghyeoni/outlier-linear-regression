@@ -17,6 +17,11 @@ development process lives here.
   samples, SGD one sample.
 - **Seed.** A dataset seed determines `X`, the true weights, the noise and
   which samples are outliers.
+- **Noise.** `ε = y − x·w`, with `w` the true weights of the sample's own
+  population (`w1` or `w2`).
+- **Plans.** Sections marked "written before the run" were recorded before
+  the corresponding script was executed. The published repository contains
+  a single commit, so this order cannot be verified from its history.
 
 **Names used in this log.**
 
@@ -51,7 +56,7 @@ untouched datasets in E8.
 | --- | --- | --- | --- |
 | E0 | Starting point | Experiment 1 (optimizers on clean data) and `ours` v1 on seed 0: 0.14654 vs Naive 0.13124 | Baseline for everything below |
 | E1 | Why is `ours` v1 worse than Naive? | At lr 0.01, pruning never stops and the last cycle does not converge | Superseded in part by E2 |
-| E2 | Does this hold at other learning rates? | At lr 0.1 / 0.5 `ours` reaches 0.030 (Oracle 0.029). lr 0.01 fails because cycles do not converge | Two limitations identified (① convergence, ② no stopping rule) |
+| E2 | Does this hold at other learning rates? | At lr 0.1 / 0.5 `ours` v1 reaches 0.030 at best (epoch 400; final 0.043; Oracle 0.029). lr 0.01 fails because cycles do not converge | Two limitations identified (① convergence, ② no stopping rule) |
 | E3 | Fix ① and ② | Per-cycle convergence removes the lr dependence; the stopping rule removes over-pruning. Held-out (seeds 1–20): 0.0224 | Ratio-based `ours_v2` becomes the final method |
 | E4 | Threshold instead of fixed 10% removal? | Worse on held-out data (0.0262 vs 0.0224): one-sided removal of clean samples | Rejected |
 | E5 | Re-admit wrongly removed samples? | 0.0190 vs ratio 0.0218 on seeds 21–40, not significant (p = 0.15) | Candidate; confirmatory test planned |
@@ -201,9 +206,9 @@ are outliers; true slope 1 (1.00). Least-squares slope on the clean points 1.01 
 ## E1 — Why `ours` v1 has a worse weight error than Naive
 
 > **Superseded in part by E2.** This analysis used lr = 0.01 only. At
-> lr 0.1 / 0.5, `ours` works and the stopping rule is a secondary issue.
+> lr 0.1 / 0.5, `ours` v1 works and the stopping rule is a secondary issue.
 
-**Observation.** `ours` reaches a clean-population MSE of 0.0119 (oracle
+**Observation.** `ours` v1 reaches a clean-population MSE of 0.0119 (oracle
 0.0102), but its weight error is 0.1465, worse than the naive fit (0.131).
 
 **Diagnostic** (`experiments/diagnose_pruning.py`). There are 92 true outliers
@@ -218,7 +223,7 @@ out of 1000 samples.
 
 Final weight error:
 
-| num_epochs | trained `ours` | closed form on kept set |
+| num_epochs | trained `ours` v1 | closed form on kept set |
 | --- | --- | --- |
 | 1000 | 0.1465 | 0.0847 |
 | 3000 | 0.3997 | 0.1209 (227 samples left) |
@@ -262,12 +267,12 @@ lr = 0.5 matches lr = 0.1 to three decimals (final 0.0433).
    is made by an unfit model and catches only 72. The kept set it ends with
    is also worse: the closed form on it gives 0.085, against 0.043 for the
    lr 0.1 kept set of the same size.
-3. `ours` works: at lr 0.1 its best point (epoch 400, 0.030) matches the
+3. `ours` v1 works: at lr 0.1 its best point (epoch 400, 0.030) matches the
    oracle (0.029), and the final 0.043 is a third of the naive fit's 0.131.
 4. The missing stopping rule is real but secondary. It costs 0.030 → 0.043
    at lr 0.1.
 5. So the E1 conclusion ("no stopping rule is the core defect") was mostly an
-   artifact of lr = 0.01. The headline `ours` number in `summary.json`
+   artifact of lr = 0.01. The headline `ours` v1 number in `summary.json`
    (lr 0.01, 0.1465) is the worst of the three learning rates.
 
 **Limitations carried into E3.**
@@ -283,7 +288,7 @@ is almost entirely orthogonal to the all-ones direction (0.1464 of 0.1465;
 the along-ones component is −0.0068). Because `X ~ U[0,1)`, the feature
 covariance has one large eigenvalue (~1.08, along the ones direction) and
 three small ones (~0.08–0.09). The resulting excess MSE, `(w - w_oracle)' S (w - w_oracle)`,
-is 0.001722. This exactly equals the observed MSE gap between `ours` and the
+is 0.001722. This exactly equals the observed MSE gap between `ours` v1 and the
 oracle (0.011876 − 0.010154). So a near-oracle MSE can hide a large weight
 error, and weight error should stay the primary metric.
 
@@ -334,8 +339,10 @@ error from 0.043 to 0.030–0.032, the oracle level. At lr 0.01 it helps
 
 When every cycle converges, lr 0.01 makes exactly the same pruning decisions
 as lr 0.1 and ends at the same error. So limitation ① was entirely a
-convergence problem. Tolerances 1e-4 to 1e-6 give the same result; 1e-3
-stops slightly early (0.041–0.044). Chose `tol = 1e-5`.
+convergence problem. Tolerances 1e-4–1e-6 give the same pruning decisions.
+The final weight errors of 1e-5 and 1e-6 agree to four decimals; 1e-4
+differs from them by up to 0.0003, and 1e-3 stops slightly early
+(0.041–0.044). Chose `tol = 1e-5`.
 
 ### Step 3 — combined method, held-out evaluation
 
@@ -346,18 +353,19 @@ choice is not sensitive on the development data. Seed 0 was used for all develop
 so the method is evaluated on 20 fresh datasets, seeds 1–20 (82–119 outliers
 each).
 
-`experiments/run_final.py` → `results/final/`
+`experiments/run_ratio_heldout.py` → `results/heldout_ratio/`
 
-| method | weight error, mean ± std (min – max) |
+| method | weight error, mean ± std (min–max) |
 | --- | --- |
-| Oracle | 0.0195 ± 0.0094 (0.0030 – 0.0350) |
-| Naive | 0.2476 ± 0.0965 (0.0987 – 0.4832) |
-| `ours` v1, lr 0.01 | 0.4628 ± 0.3508 (0.0658 – 1.1549) |
-| `ours` v1, lr 0.1 | 0.0274 ± 0.0125 (0.0085 – 0.0588) |
-| **combined, lr 0.01 / 0.1 / 0.5** | **0.0224 ± 0.0102 (0.0058 – 0.0503)** |
+| Oracle | 0.0195 ± 0.0094 (0.0030–0.0350) |
+| Naive | 0.2476 ± 0.0965 (0.0987–0.4832) |
+| `ours` v1, lr 0.01 | 0.4628 ± 0.3508 (0.0658–1.1549) |
+| `ours` v1, lr 0.1 | 0.0274 ± 0.0125 (0.0085–0.0588) |
+| **combined, lr 0.01 / 0.1 / 0.5** | **0.0224 ± 0.0102 (0.0058–0.0503)** |
 
 (The `ours` v1 rows are the `v1_lr*` columns of
-`results/final/per_seed.csv`.)
+`results/heldout_ratio/per_seed.csv`; the ratio rows are the `ratio_lr*`
+columns.)
 
 - The combined method beats Naive on 20/20 datasets, is 91% below Naive on
   average, and is 0.0029 above Oracle on average.
@@ -424,8 +432,8 @@ a nearly unbiased fit, so it cuts both tails (e.g. 46 / 39 on seed 3), which
 happens to cancel most of the first-prune bias. Smaller k removes more
 samples one-sidedly and is worse. k = 4 removes almost no clean samples
 (24 / 0) and does slightly better than ratio on average (0.0211), but leaves
-24 outliers in the data. Its std is also similar, so the difference is not
-clearly meaningful.
+24 outliers in the data. k = 4 was not a planned candidate, and no paired
+test was run for it.
 
 **Decision.** Keep ratio pruning.
 
@@ -537,8 +545,8 @@ Ran exactly as planned. `experiments/run_confirmatory.py` →
 | readmit | 0.0174 ± 0.0077 |
 
 - readmit − ratio: mean −0.00253, 95% bootstrap CI [−0.00376, −0.00133].
-  Readmit is better on 65 / 100 datasets. The SD of the differences is
-  0.0062, close to the planning estimate (0.0081).
+  Readmit is better on 65 / 100 datasets. The sample SD of the differences
+  is 0.0062, close to the planning estimate (0.0081, also a sample SD).
 - Primary, sign-flip permutation: **p = 0.00012**. Secondary, Wilcoxon
   signed-rank: z = −3.72, p = 0.00020.
 - **Decision (per the pre-registered rule): adopt readmit as the final
@@ -562,55 +570,55 @@ the README reports the final method on untouched seeds instead (E8).
 
 ### Main table
 
-| method | weight error (mean ± std) | min – max |
+| method | weight error (mean ± std) | min–max |
 | --- | --- | --- |
-| Oracle | 0.0172 ± 0.0072 | 0.0042 – 0.0355 |
-| Naive | 0.2476 ± 0.0693 | 0.0620 – 0.4117 |
-| optimizer grid, Adam (`full`, `zero`) | 0.2476 ± 0.0693 | 0.0620 – 0.4117 |
-| optimizer grid, best: RMSProp (`SGD`, `zero`) | 0.1866 ± 0.0744 | 0.0323 – 0.3987 |
-| `ours` (readmit, lr 0.1) | 0.0174 ± 0.0077 | 0.0022 – 0.0351 |
-| ratio (E6) | 0.0199 ± 0.0086 | 0.0033 – 0.0491 |
+| Oracle | 0.0172 ± 0.0072 | 0.0042–0.0355 |
+| Naive | 0.2476 ± 0.0693 | 0.0620–0.4117 |
+| optimizer grid, Adam(`full`, `zero`) | 0.2476 ± 0.0693 | 0.0620–0.4117 |
+| optimizer grid, best: RMSProp(`SGD`, `zero`) | 0.1866 ± 0.0744 | 0.0323–0.3987 |
+| `ours` (readmit, lr 0.1) | 0.0174 ± 0.0077 | 0.0022–0.0351 |
+| ratio (E6) | 0.0199 ± 0.0086 | 0.0033–0.0491 |
 
 ### Optimizer grid on the evaluation set (lr 0.01, 1000 epochs, mini-batch size 32)
 
-| optimizer | batch | init | weight error (mean ± std) | min – max |
+| optimizer | batch | init | weight error (mean ± std) | min–max |
 | --- | --- | --- | --- | --- |
-| GD | SGD | random | 0.3942 ± 0.1203 | 0.1664 – 0.8776 |
-| GD | SGD | sparse | 0.4668 ± 0.1343 | 0.1759 – 0.9486 |
-| GD | SGD | zero | 0.2938 ± 0.0996 | 0.0628 – 0.6992 |
-| GD | full | random | 0.3798 ± 0.0903 | 0.1846 – 0.5680 |
-| GD | full | sparse | 0.4582 ± 0.1058 | 0.2275 – 0.6992 |
-| GD | full | zero | 0.2771 ± 0.0696 | 0.0680 – 0.4657 |
-| GD | mini-batch | random | 0.3790 ± 0.0908 | 0.2021 – 0.5778 |
-| GD | mini-batch | sparse | 0.4572 ± 0.1075 | 0.2336 – 0.7098 |
-| GD | mini-batch | zero | 0.2749 ± 0.0721 | 0.0771 – 0.4909 |
-| AdaGrad | SGD | random | 1.7193 ± 0.2791 | 0.9938 – 2.2614 |
-| AdaGrad | SGD | sparse | 1.8480 ± 0.2847 | 1.1772 – 2.3682 |
-| AdaGrad | SGD | zero | 0.6719 ± 0.1971 | 0.1479 – 1.0687 |
-| AdaGrad | full | random | 1.6089 ± 0.2834 | 0.8814 – 2.1663 |
-| AdaGrad | full | sparse | 1.5079 ± 0.3304 | 0.9268 – 2.0476 |
-| AdaGrad | full | zero | 0.5237 ± 0.1628 | 0.0698 – 0.8498 |
-| AdaGrad | mini-batch | random | 1.6130 ± 0.2834 | 0.8834 – 2.1685 |
-| AdaGrad | mini-batch | sparse | 1.6101 ± 0.2985 | 1.0839 – 2.1203 |
-| AdaGrad | mini-batch | zero | 0.5346 ± 0.1644 | 0.0850 – 0.8574 |
-| RMSProp | SGD | random | 0.2649 ± 0.1235 | 0.0572 – 0.6228 |
-| RMSProp | SGD | sparse | 0.3058 ± 0.1549 | 0.0374 – 0.8161 |
-| RMSProp | SGD | zero | 0.1866 ± 0.0744 | 0.0323 – 0.3987 |
-| RMSProp | full | random | 0.2479 ± 0.0694 | 0.0719 – 0.4195 |
-| RMSProp | full | sparse | 0.2476 ± 0.0703 | 0.0523 – 0.4195 |
-| RMSProp | full | zero | 0.2484 ± 0.0696 | 0.0523 – 0.4081 |
-| RMSProp | mini-batch | random | 0.2440 ± 0.0781 | 0.0741 – 0.4837 |
-| RMSProp | mini-batch | sparse | 0.2440 ± 0.0781 | 0.0741 – 0.4841 |
-| RMSProp | mini-batch | zero | 0.2440 ± 0.0781 | 0.0741 – 0.4836 |
-| Adam | SGD | random | 0.5021 ± 0.1466 | 0.1970 – 0.8899 |
-| Adam | SGD | sparse | 0.4567 ± 0.1778 | 0.1037 – 1.0515 |
-| Adam | SGD | zero | 0.2918 ± 0.1027 | 0.0321 – 0.6066 |
-| Adam | full | random | 0.2662 ± 0.0611 | 0.1435 – 0.4147 |
-| Adam | full | sparse | 0.2476 ± 0.0693 | 0.0619 – 0.4117 |
-| Adam | full | zero | 0.2476 ± 0.0693 | 0.0620 – 0.4117 |
-| Adam | mini-batch | random | 0.2704 ± 0.0681 | 0.1525 – 0.4737 |
-| Adam | mini-batch | sparse | 0.2472 ± 0.0789 | 0.0673 – 0.4958 |
-| Adam | mini-batch | zero | 0.2468 ± 0.0794 | 0.0518 – 0.4917 |
+| GD | SGD | random | 0.3942 ± 0.1203 | 0.1664–0.8776 |
+| GD | SGD | sparse | 0.4668 ± 0.1343 | 0.1759–0.9486 |
+| GD | SGD | zero | 0.2938 ± 0.0996 | 0.0628–0.6992 |
+| GD | full | random | 0.3798 ± 0.0903 | 0.1846–0.5680 |
+| GD | full | sparse | 0.4582 ± 0.1058 | 0.2275–0.6992 |
+| GD | full | zero | 0.2771 ± 0.0696 | 0.0680–0.4657 |
+| GD | mini-batch | random | 0.3790 ± 0.0908 | 0.2021–0.5778 |
+| GD | mini-batch | sparse | 0.4572 ± 0.1075 | 0.2336–0.7098 |
+| GD | mini-batch | zero | 0.2749 ± 0.0721 | 0.0771–0.4909 |
+| AdaGrad | SGD | random | 1.7193 ± 0.2791 | 0.9938–2.2614 |
+| AdaGrad | SGD | sparse | 1.8480 ± 0.2847 | 1.1772–2.3682 |
+| AdaGrad | SGD | zero | 0.6719 ± 0.1971 | 0.1479–1.0687 |
+| AdaGrad | full | random | 1.6089 ± 0.2834 | 0.8814–2.1663 |
+| AdaGrad | full | sparse | 1.5079 ± 0.3304 | 0.9268–2.0476 |
+| AdaGrad | full | zero | 0.5237 ± 0.1628 | 0.0698–0.8498 |
+| AdaGrad | mini-batch | random | 1.6130 ± 0.2834 | 0.8834–2.1685 |
+| AdaGrad | mini-batch | sparse | 1.6101 ± 0.2985 | 1.0839–2.1203 |
+| AdaGrad | mini-batch | zero | 0.5346 ± 0.1644 | 0.0850–0.8574 |
+| RMSProp | SGD | random | 0.2649 ± 0.1235 | 0.0572–0.6228 |
+| RMSProp | SGD | sparse | 0.3058 ± 0.1549 | 0.0374–0.8161 |
+| RMSProp | SGD | zero | 0.1866 ± 0.0744 | 0.0323–0.3987 |
+| RMSProp | full | random | 0.2479 ± 0.0694 | 0.0719–0.4195 |
+| RMSProp | full | sparse | 0.2476 ± 0.0703 | 0.0523–0.4195 |
+| RMSProp | full | zero | 0.2484 ± 0.0696 | 0.0523–0.4081 |
+| RMSProp | mini-batch | random | 0.2440 ± 0.0781 | 0.0741–0.4837 |
+| RMSProp | mini-batch | sparse | 0.2440 ± 0.0781 | 0.0741–0.4841 |
+| RMSProp | mini-batch | zero | 0.2440 ± 0.0781 | 0.0741–0.4836 |
+| Adam | SGD | random | 0.5021 ± 0.1466 | 0.1970–0.8899 |
+| Adam | SGD | sparse | 0.4567 ± 0.1778 | 0.1037–1.0515 |
+| Adam | SGD | zero | 0.2918 ± 0.1027 | 0.0321–0.6066 |
+| Adam | full | random | 0.2662 ± 0.0611 | 0.1435–0.4147 |
+| Adam | full | sparse | 0.2476 ± 0.0693 | 0.0619–0.4117 |
+| Adam | full | zero | 0.2476 ± 0.0693 | 0.0620–0.4117 |
+| Adam | mini-batch | random | 0.2704 ± 0.0681 | 0.1525–0.4737 |
+| Adam | mini-batch | sparse | 0.2472 ± 0.0789 | 0.0673–0.4958 |
+| Adam | mini-batch | zero | 0.2468 ± 0.0794 | 0.0518–0.4917 |
 
 The smallest mean weight error over the 36 configurations is
 0.1866 (RMSProp, `SGD`, `zero`). Full-batch configurations that
@@ -712,6 +720,9 @@ total of 288 clean samples is 2.88 per dataset.
 
 ### Derived values
 
+Computed from unrounded values; the rounded inputs shown can give a
+different last digit.
+
 | value | computation |
 | --- | --- |
 | 14.4× | Naive / Oracle mean weight error: 0.2476 / 0.0172 = 14.41 |
@@ -766,21 +777,21 @@ These are the values reported in the README.
 
 **Main table (README table 3).**
 
-| method | weight error (mean ± std) | min – max |
+| method | weight error (mean ± std) | min–max |
 | --- | --- | --- |
-| Oracle | 0.0188 ± 0.0082 | 0.0046 – 0.0415 |
-| Naive | 0.2478 ± 0.0674 | 0.1218 – 0.4573 |
-| optimizer grid, Adam (`full`, `zero`) | 0.2478 ± 0.0674 | 0.1218 – 0.4573 |
-| `ours` | 0.0188 ± 0.0078 | 0.0053 – 0.0414 |
+| Oracle | 0.0188 ± 0.0082 | 0.0046–0.0415 |
+| Naive | 0.2478 ± 0.0674 | 0.1218–0.4573 |
+| optimizer grid, Adam(`full`, `zero`) | 0.2478 ± 0.0674 | 0.1218–0.4573 |
+| `ours` | 0.0188 ± 0.0078 | 0.0053–0.0414 |
 
-Medians shown in README figure 5: Oracle 0.0181 (0.018), Naive
-0.2407 (0.241), `ours` 0.0179 (0.018).
+Medians, shown rounded to three decimals in README figure 5: Oracle 0.0181
+(0.018), Naive 0.2407 (0.241), `ours` 0.0179 (0.018).
 
 **`ours` vs Naive and Oracle.**
 
 - `ours` < Naive on 100 / 100 datasets. Reduction of the mean:
   1 − 0.0188 / 0.2478 = 92.4%. Naive / Oracle = 0.2478 / 0.0188 = 13.2×.
-- `ours` − Oracle: mean +0.00003 (+0.00003), 95% bootstrap CI
+- `ours` − Oracle: mean +0.00003, 95% bootstrap CI
   [−0.00044, +0.00049], two-sided sign-flip p = 0.895.
   `ours` is lower on 49 / 100. Not significant. This does not show that
   the two are equal; it shows no detectable difference at n = 100.
@@ -793,54 +804,53 @@ Medians shown in README figure 5: Oracle 0.0181 (0.018), Naive
 | 0.1 | 0.0188 ± 0.0078 |
 | 0.5 | 0.0188 ± 0.0079 |
 
-Largest per-dataset difference between learning rates: 0.0015
-(0.0015).
+Largest per-dataset difference between learning rates: 0.0015.
 
 **Optimizer grid (lr 0.01, 1000 epochs, mini-batch size 32).** Every optimizer
 minimizes the same convex loss (MSE on all data), whose unique minimizer is
-the Naive solution. Adam (`full`, `zero`) matches Naive within
-0.00055 (0.00055) on every dataset. A configuration whose value differs
+the Naive solution. Adam(`full`, `zero`) matches Naive within
+0.00055 on every dataset. A configuration whose value differs
 from Naive has not reached the minimum within 1000 epochs. The smallest mean
 over the 36 configurations is 0.1882 (RMSProp, `SGD`, `zero`).
 
-| optimizer | batch | init | weight error (mean ± std) | min – max |
+| optimizer | batch | init | weight error (mean ± std) | min–max |
 | --- | --- | --- | --- | --- |
-| GD | SGD | random | 0.3962 ± 0.1065 | 0.1590 – 0.6275 |
-| GD | SGD | sparse | 0.4727 ± 0.1083 | 0.1551 – 0.7582 |
-| GD | SGD | zero | 0.2949 ± 0.0977 | 0.0740 – 0.5753 |
-| GD | full | random | 0.3829 ± 0.0909 | 0.1444 – 0.5899 |
-| GD | full | sparse | 0.4622 ± 0.0962 | 0.2115 – 0.6692 |
-| GD | full | zero | 0.2776 ± 0.0633 | 0.1572 – 0.4595 |
-| GD | mini-batch | random | 0.3839 ± 0.0903 | 0.1432 – 0.5931 |
-| GD | mini-batch | sparse | 0.4629 ± 0.0960 | 0.2144 – 0.6571 |
-| GD | mini-batch | zero | 0.2776 ± 0.0635 | 0.1598 – 0.4679 |
-| AdaGrad | SGD | random | 1.7294 ± 0.2893 | 1.0630 – 2.3522 |
-| AdaGrad | SGD | sparse | 1.8590 ± 0.2927 | 1.1658 – 2.4382 |
-| AdaGrad | SGD | zero | 0.6836 ± 0.1888 | 0.2574 – 1.1297 |
-| AdaGrad | full | random | 1.6220 ± 0.2943 | 0.9086 – 2.2565 |
-| AdaGrad | full | sparse | 1.5147 ± 0.3308 | 0.9070 – 2.0713 |
-| AdaGrad | full | zero | 0.5282 ± 0.1532 | 0.2014 – 0.8976 |
-| AdaGrad | mini-batch | random | 1.6262 ± 0.2936 | 0.9231 – 2.2623 |
-| AdaGrad | mini-batch | sparse | 1.6187 ± 0.2976 | 1.0509 – 2.1189 |
-| AdaGrad | mini-batch | zero | 0.5395 ± 0.1544 | 0.2023 – 0.9147 |
-| RMSProp | SGD | random | 0.2738 ± 0.1170 | 0.0619 – 0.6010 |
-| RMSProp | SGD | sparse | 0.3115 ± 0.1337 | 0.0426 – 0.7269 |
-| RMSProp | SGD | zero | 0.1882 ± 0.0738 | 0.0404 – 0.4124 |
-| RMSProp | full | random | 0.2480 ± 0.0691 | 0.1289 – 0.4640 |
-| RMSProp | full | sparse | 0.2471 ± 0.0664 | 0.1289 – 0.4507 |
-| RMSProp | full | zero | 0.2481 ± 0.0684 | 0.1152 – 0.4507 |
-| RMSProp | mini-batch | random | 0.2478 ± 0.0705 | 0.0761 – 0.4750 |
-| RMSProp | mini-batch | sparse | 0.2478 ± 0.0705 | 0.0761 – 0.4746 |
-| RMSProp | mini-batch | zero | 0.2478 ± 0.0705 | 0.0761 – 0.4742 |
-| Adam | SGD | random | 0.5061 ± 0.1420 | 0.2184 – 0.8375 |
-| Adam | SGD | sparse | 0.4671 ± 0.1500 | 0.0963 – 0.9177 |
-| Adam | SGD | zero | 0.2946 ± 0.0986 | 0.0666 – 0.6233 |
-| Adam | full | random | 0.2664 ± 0.0615 | 0.1492 – 0.4647 |
-| Adam | full | sparse | 0.2478 ± 0.0674 | 0.1217 – 0.4573 |
-| Adam | full | zero | 0.2478 ± 0.0674 | 0.1218 – 0.4573 |
-| Adam | mini-batch | random | 0.2719 ± 0.0629 | 0.1478 – 0.4746 |
-| Adam | mini-batch | sparse | 0.2478 ± 0.0723 | 0.0959 – 0.4562 |
-| Adam | mini-batch | zero | 0.2477 ± 0.0721 | 0.0897 – 0.4567 |
+| GD | SGD | random | 0.3962 ± 0.1065 | 0.1590–0.6275 |
+| GD | SGD | sparse | 0.4727 ± 0.1083 | 0.1551–0.7582 |
+| GD | SGD | zero | 0.2949 ± 0.0977 | 0.0740–0.5753 |
+| GD | full | random | 0.3829 ± 0.0909 | 0.1444–0.5899 |
+| GD | full | sparse | 0.4622 ± 0.0962 | 0.2115–0.6692 |
+| GD | full | zero | 0.2776 ± 0.0633 | 0.1572–0.4595 |
+| GD | mini-batch | random | 0.3839 ± 0.0903 | 0.1432–0.5931 |
+| GD | mini-batch | sparse | 0.4629 ± 0.0960 | 0.2144–0.6571 |
+| GD | mini-batch | zero | 0.2776 ± 0.0635 | 0.1598–0.4679 |
+| AdaGrad | SGD | random | 1.7294 ± 0.2893 | 1.0630–2.3522 |
+| AdaGrad | SGD | sparse | 1.8590 ± 0.2927 | 1.1658–2.4382 |
+| AdaGrad | SGD | zero | 0.6836 ± 0.1888 | 0.2574–1.1297 |
+| AdaGrad | full | random | 1.6220 ± 0.2943 | 0.9086–2.2565 |
+| AdaGrad | full | sparse | 1.5147 ± 0.3308 | 0.9070–2.0713 |
+| AdaGrad | full | zero | 0.5282 ± 0.1532 | 0.2014–0.8976 |
+| AdaGrad | mini-batch | random | 1.6262 ± 0.2936 | 0.9231–2.2623 |
+| AdaGrad | mini-batch | sparse | 1.6187 ± 0.2976 | 1.0509–2.1189 |
+| AdaGrad | mini-batch | zero | 0.5395 ± 0.1544 | 0.2023–0.9147 |
+| RMSProp | SGD | random | 0.2738 ± 0.1170 | 0.0619–0.6010 |
+| RMSProp | SGD | sparse | 0.3115 ± 0.1337 | 0.0426–0.7269 |
+| RMSProp | SGD | zero | 0.1882 ± 0.0738 | 0.0404–0.4124 |
+| RMSProp | full | random | 0.2480 ± 0.0691 | 0.1289–0.4640 |
+| RMSProp | full | sparse | 0.2471 ± 0.0664 | 0.1289–0.4507 |
+| RMSProp | full | zero | 0.2481 ± 0.0684 | 0.1152–0.4507 |
+| RMSProp | mini-batch | random | 0.2478 ± 0.0705 | 0.0761–0.4750 |
+| RMSProp | mini-batch | sparse | 0.2478 ± 0.0705 | 0.0761–0.4746 |
+| RMSProp | mini-batch | zero | 0.2478 ± 0.0705 | 0.0761–0.4742 |
+| Adam | SGD | random | 0.5061 ± 0.1420 | 0.2184–0.8375 |
+| Adam | SGD | sparse | 0.4671 ± 0.1500 | 0.0963–0.9177 |
+| Adam | SGD | zero | 0.2946 ± 0.0986 | 0.0666–0.6233 |
+| Adam | full | random | 0.2664 ± 0.0615 | 0.1492–0.4647 |
+| Adam | full | sparse | 0.2478 ± 0.0674 | 0.1217–0.4573 |
+| Adam | full | zero | 0.2478 ± 0.0674 | 0.1218–0.4573 |
+| Adam | mini-batch | random | 0.2719 ± 0.0629 | 0.1478–0.4746 |
+| Adam | mini-batch | sparse | 0.2478 ± 0.0723 | 0.0959–0.4562 |
+| Adam | mini-batch | zero | 0.2477 ± 0.0721 | 0.0897–0.4567 |
 
 **Samples kept.** Clean samples kept: 896.25 of 898.8 on average
 (99.72%, 99.7%). Clean samples excluded: 2.55 per dataset.
@@ -858,13 +868,13 @@ noise standard deviation 0.1.
 
 **Outliers kept.** 35 outliers in 24 datasets. `x·w1` of kept outliers:
 mean 0.155, max 0.225; of the 10085 removed outliers: mean 1.004, min
-0.089. Refitting the final inlier set without the kept outliers changes the
-weight error by at most 0.0030 (mean 0.00010).
+0.089. Refitting the final inlier set with closed form, with and without the kept
+outliers, changes the weight error by at most 0.0030 (mean 0.00010).
 
 **5-cycle cap.** 11 / 100 runs reached the cap before the inlier set was
 confirmed unchanged. Re-run with a 20-cycle cap:
 
-| seed | cycles until the set is fixed | inlier set sizes | changes between cycles | weight error, cap 5 | weight error, cap 20 |
+| seed | cycles until the set is fixed (`stopped_at_cycle_with_cap_20` + 1; the JSON index is 0-based) | inlier set sizes | changes between cycles | weight error, cap 5 | weight error, cap 20 |
 | --- | --- | --- | --- | --- | --- |
 | 143 | 5 | 868, 892, 895, 897 | 34, 3, 2 | 0.0189 | 0.0189 |
 | 169 | 6 | 863, 900, 902, 901, 900 | 43, 2, 1, 1 | 0.0108 | 0.0094 |
@@ -885,11 +895,15 @@ after the 6th and 7th cycle, and their weight error changes (0.0108 → 0.0094,
 
 **Cycle length.** The longest cycle needed 242 epochs (cap 20000).
 
-**Settings of the final method (README table 1).** `k = 3` (conventional 3σ
-cut), convergence tolerance 1e-5 (E3: 1e-4 to 1e-6 give the same result on
-seed 0), at most 5 cycles (as in `ours` v1, 5 × 200 epochs), at most 20000
-epochs per cycle, lr 0.1, initial weights `N(0, 1)` with seed 0 in every
-cycle, Adam β1 = 0.9, β2 = 0.999, ε = 1e-8.
+**Settings of the final method (README table 1).** All fixed before E8.
+`k = 3` (conventional 3σ cut; no other value was tried for the final
+method), convergence tolerance 1e-5 (chosen in E3; 1e-4–1e-6 give the same
+pruning decisions on seed 0), at most 5 cycles (fixed in E3), at most 20000
+epochs per cycle (a cap large enough for the tolerance to apply first), lr
+0.1 (chosen in E3), initial weights `N(0, 1)` with seed 0 in every cycle,
+Adam β1 = 0.9, β2 = 0.999, ε = 1e-8. The last cycle does not re-select: after
+cycle 5 the method stops. E8 confirms that the longest cycle needed 242
+epochs and that lr 0.01 and 0.5 give the same mean weight error.
 
 ---
 

@@ -7,7 +7,7 @@
     "estimation_error_clean": 0.02741586769641318,
     "weight_error_l2": 0.1312355251663121
   },
-  "part4_ours": {
+  "part4_ours_v1": {
     "final_mse": 0.011875512490590708,
     "final_weight_error": 0.14653616790310103
   }

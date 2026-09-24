@@ -1,4 +1,4 @@
-"""Diagnose the pruning behaviour of "ours".
+"""Diagnose the pruning behaviour of ``ours_v1`` (log E1-E2).
 
 For each pruning event, records how many removed samples were true outliers
 (``z == 2``), how many outliers remain, and the weight error of the model that

@@ -20,6 +20,7 @@ import json
 import os
 
 from outlier_regression.data import generate_linear_data
+from outlier_regression.optimizers import OPTIMIZERS
 from outlier_regression.regression import closed_form_solution, estimation_error, weight_error
 from outlier_regression.train import run_experiment
 from outlier_regression.plots import plot_optimizer_convergence
@@ -58,7 +59,7 @@ def main():
     print(df.to_string())
     df.to_csv(os.path.join(OUT_DIR, "optimizer_grid.csv"), index=False)
     tail = {}
-    for opt in ("GD", "AdaGrad", "RMSProp", "Adam"):
+    for opt in OPTIMIZERS:
         last = histories[(opt, "full", "zero")]["weight"][-100:]
         tail[opt] = {"min": float(min(last)), "max": float(max(last)),
                      "final": float(last[-1])}
@@ -68,8 +69,8 @@ def main():
 
     # --- convergence plots (zero init, full batch) --------------------------
     plot_optimizer_convergence(
-        histories, "estimation", batch="full", init="zero",
-        title="Estimation Error (init=zero, batch=full)",
+        histories, "estimation", batch="full", init="zero", ylabel="MSE",
+        title="MSE (init=zero, batch=full)",
         save_path=os.path.join(OUT_DIR, "estimation_error.png"))
     plot_optimizer_convergence(
         histories, "weight", batch="full", init="zero",

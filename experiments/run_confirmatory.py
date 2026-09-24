@@ -71,9 +71,9 @@ def plot(df, path):
     plot_weight_error_strip(
         [("Oracle", df["Oracle"], COLORS["Oracle"]),
          ("Naive", df["Naive"], COLORS["Naive"]),
-         ("ours (final)", df["readmit"], COLORS["readmit"])],
+         ("readmit", df["readmit"], COLORS["readmit"])],
         save_path=path,
-        title=f"Weight error on {len(df)} held-out datasets",
+        title=f"Weight error on {len(df)} confirmatory datasets",
         point_size=16, jitter=0.15, edge_width=0.6, alpha=0.9)
 
 

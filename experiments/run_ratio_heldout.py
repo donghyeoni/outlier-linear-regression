@@ -9,7 +9,7 @@ fixed before this evaluation. Seed 0 was used during development, so the
 evaluation uses fresh mixture datasets with seeds 1-20. The seed-0 result is
 also saved, separately, for reference.
 
-Writes to ``results/final/``:
+Writes to ``results/heldout_ratio/``:
 
 * ``per_seed.csv``          -- weight error per dataset seed and method
                                (``v1_*`` = ``ours_v1``)
@@ -18,7 +18,7 @@ Writes to ``results/final/``:
 
 Usage
 -----
-    python experiments/run_final.py
+    python experiments/run_ratio_heldout.py
 """
 
 from __future__ import annotations
@@ -35,14 +35,14 @@ from outlier_regression.plots import plot_weight_error_strip
 from outlier_regression.regression import closed_form_solution, weight_error
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_DIR = os.path.join(REPO_ROOT, "results", "final")
+OUT_DIR = os.path.join(REPO_ROOT, "results", "heldout_ratio")
 
 SEEDS = range(1, 21)
 LEARNING_RATES = (0.01, 0.1, 0.5)
-FINAL = {"converge_tol": 1e-5, "stop_k": 3.0}
+RATIO = {"converge_tol": 1e-5, "stop_k": 3.0}
 
 # Categorical slots 1-3 of the validated reference palette (all-pairs safe).
-COLORS = {"Oracle": "#1baf7a", "Naive": "#eb6834", "ours": "#2a78d6"}
+COLORS = {"Oracle": "#1baf7a", "Naive": "#eb6834", "ratio": "#2a78d6"}
 
 
 def evaluate(seed):
@@ -57,13 +57,13 @@ def evaluate(seed):
     for lr in LEARNING_RATES:
         w, est, w_hist, info = ours_v2(
             X, y, w1, learning_rate=lr, eval_X=X, eval_y=y, eval_mask=clean,
-            seed=0, **FINAL)
+            seed=0, **RATIO)
         kept = info["kept_idx"]
-        row[f"ours_lr{lr}"] = w_hist[-1]
-        row[f"ours_lr{lr}_mse"] = est[-1]
-        row[f"ours_lr{lr}_kept"] = int(len(kept))
-        row[f"ours_lr{lr}_outliers_left"] = int(np.sum(z[kept] == 2))
-        row[f"ours_lr{lr}_epochs"] = len(w_hist)
+        row[f"ratio_lr{lr}"] = w_hist[-1]
+        row[f"ratio_lr{lr}_mse"] = est[-1]
+        row[f"ratio_lr{lr}_kept"] = int(len(kept))
+        row[f"ratio_lr{lr}_outliers_left"] = int(np.sum(z[kept] == 2))
+        row[f"ratio_lr{lr}_epochs"] = len(w_hist)
     # ours_v1, for comparison in the experiment log
     for lr in LEARNING_RATES:
         _, est, w_hist = ours_v1(X, y, w1, learning_rate=lr,
@@ -82,7 +82,7 @@ def plot(df, path):
     plot_weight_error_strip(
         [("Oracle", df["Oracle"], COLORS["Oracle"]),
          ("Naive", df["Naive"], COLORS["Naive"]),
-         ("ours (final)", df["ours_lr0.1"], COLORS["ours"])],
+         ("ratio (E3)", df["ratio_lr0.1"], COLORS["ratio"])],
         save_path=path,
         title=f"Weight error on {len(df)} held-out datasets",
         point_size=28, jitter=0.12, edge_width=1.0)
@@ -93,9 +93,9 @@ def main():
     df = pd.DataFrame([evaluate(s) for s in SEEDS])
     df.to_csv(os.path.join(OUT_DIR, "per_seed.csv"), index=False)
 
-    cols = (["Oracle", "Naive"] + [f"ours_lr{lr}" for lr in LEARNING_RATES]
+    cols = (["Oracle", "Naive"] + [f"ratio_lr{lr}" for lr in LEARNING_RATES]
             + [f"v1_lr{lr}" for lr in LEARNING_RATES])
-    summary = {"seeds": list(SEEDS), "final_config": FINAL, "methods": {}}
+    summary = {"seeds": list(SEEDS), "config": RATIO, "methods": {}}
     for c in cols:
         v = df[c].to_numpy()
         summary["methods"][c] = {
@@ -109,24 +109,24 @@ def main():
               f"(min {v.min():.4f}, max {v.max():.4f}), "
               f"MSE {df[f'{c}_mse'].mean():.5f}")
     for lr in LEARNING_RATES:
-        summary["methods"][f"ours_lr{lr}"].update({
-            "kept_mean": float(df[f"ours_lr{lr}_kept"].mean()),
-            "outliers_left_total": int(df[f"ours_lr{lr}_outliers_left"].sum()),
-            "epochs_mean": float(df[f"ours_lr{lr}_epochs"].mean()),
+        summary["methods"][f"ratio_lr{lr}"].update({
+            "kept_mean": float(df[f"ratio_lr{lr}_kept"].mean()),
+            "outliers_left_total": int(df[f"ratio_lr{lr}_outliers_left"].sum()),
+            "epochs_mean": float(df[f"ratio_lr{lr}_epochs"].mean()),
         })
-    gap = df["ours_lr0.1"] - df["Oracle"]
-    summary["ours_minus_oracle_mean"] = float(gap.mean())
-    summary["ours_better_than_naive"] = int(np.sum(df["ours_lr0.1"] < df["Naive"]))
-    print(f"ours - Oracle: {gap.mean():.4f} on average; "
-          f"ours < Naive on {summary['ours_better_than_naive']}/{len(df)} datasets")
+    gap = df["ratio_lr0.1"] - df["Oracle"]
+    summary["ratio_minus_oracle_mean"] = float(gap.mean())
+    summary["ratio_better_than_naive"] = int(np.sum(df["ratio_lr0.1"] < df["Naive"]))
+    print(f"ratio - Oracle: {gap.mean():.4f} on average; "
+          f"ratio < Naive on {summary['ratio_better_than_naive']}/{len(df)} datasets")
 
     dev = evaluate(0)
     summary["development_seed0"] = {
         k: dev[k] for k in ["n_outliers", "Oracle", "Oracle_mse", "Naive",
                             "Naive_mse"]
-        + [f"ours_lr{lr}{sfx}" for lr in LEARNING_RATES
+        + [f"ratio_lr{lr}{sfx}" for lr in LEARNING_RATES
            for sfx in ("", "_mse", "_kept", "_outliers_left")]}
-    print(f"development seed 0: ours {dev['ours_lr0.1']:.4f} "
+    print(f"development seed 0: ratio {dev['ratio_lr0.1']:.4f} "
           f"(Oracle {dev['Oracle']:.4f}, Naive {dev['Naive']:.4f})")
 
     with open(os.path.join(OUT_DIR, "summary.json"), "w") as f:

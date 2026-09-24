@@ -1,4 +1,4 @@
-"""Evaluate re-admission pruning against the ratio-based final method.
+"""Evaluate re-admission pruning against ratio pruning (log E5).
 
 ``readmit`` recomputes the inlier set from all samples after every converged
 cycle (``|r| <= 3 * sigma_MAD``), so samples wrongly removed by the
@@ -158,8 +158,8 @@ def main():
                                        for s in capped],
         "development_seed0": {k: (v.item() if hasattr(v, "item") else v)
                               for k, v in df[df.seed == 0].iloc[0].items()},
-        "primary": summarize(df[df.seed.isin(PRIMARY_SEEDS)], "primary"),
-        "secondary": summarize(df[df.seed.isin(SECONDARY_SEEDS)], "secondary"),
+        "primary": summarize(primary, "primary"),
+        "secondary": summarize(secondary, "secondary"),
     }
     with open(os.path.join(OUT_DIR, "step4_readmit_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)

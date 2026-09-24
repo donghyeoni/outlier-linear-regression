@@ -225,7 +225,6 @@ def ours_v2(X, y, w_ref, *, init_type="random", learning_rate=0.1,
         return w, t, n
 
     budget = cycle_epochs if converge_tol is None else max_cycle_epochs
-    w = None
     for cycle in range(num_cycles):
         w = initialize_weights(init_type, D)
         state = optimizers.init_state(w)

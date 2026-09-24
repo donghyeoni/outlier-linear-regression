@@ -21,7 +21,7 @@
     19,
     20
   ],
-  "final_config": {
+  "config": {
     "converge_tol": 1e-05,
     "stop_k": 3.0
   },
@@ -40,7 +40,7 @@
       "weight_error_max": 0.483153921822858,
       "mse_mean": 0.05434336688427334
     },
-    "ours_lr0.01": {
+    "ratio_lr0.01": {
       "weight_error_mean": 0.022373149077088768,
       "weight_error_std": 0.010162071267919206,
       "weight_error_min": 0.005809524807237304,
@@ -50,7 +50,7 @@
       "outliers_left_total": 1,
       "epochs_mean": 3032.15
     },
-    "ours_lr0.1": {
+    "ratio_lr0.1": {
       "weight_error_mean": 0.022378170505569405,
       "weight_error_std": 0.010159402738456044,
       "weight_error_min": 0.005775451812255934,
@@ -60,7 +60,7 @@
       "outliers_left_total": 1,
       "epochs_mean": 597.7
     },
-    "ours_lr0.5": {
+    "ratio_lr0.5": {
       "weight_error_mean": 0.022378824587912866,
       "weight_error_std": 0.010160897356810809,
       "weight_error_min": 0.005788260843032882,
@@ -92,25 +92,25 @@
       "mse_mean": 0.010027010142543803
     }
   },
-  "ours_minus_oracle_mean": 0.0028992684972972303,
-  "ours_better_than_naive": 20,
+  "ratio_minus_oracle_mean": 0.0028992684972972303,
+  "ratio_better_than_naive": 20,
   "development_seed0": {
     "n_outliers": 92,
     "Oracle": 0.029211322573062835,
     "Oracle_mse": 0.010153718767338477,
     "Naive": 0.1312355251663121,
     "Naive_mse": 0.02741586769641318,
-    "ours_lr0.01": 0.03176026440998109,
-    "ours_lr0.01_mse": 0.010188469524531276,
-    "ours_lr0.01_kept": 810,
-    "ours_lr0.01_outliers_left": 0,
-    "ours_lr0.1": 0.03174452969973787,
-    "ours_lr0.1_mse": 0.010188578130193731,
-    "ours_lr0.1_kept": 810,
-    "ours_lr0.1_outliers_left": 0,
-    "ours_lr0.5": 0.03175445298249585,
-    "ours_lr0.5_mse": 0.010188492886498006,
-    "ours_lr0.5_kept": 810,
-    "ours_lr0.5_outliers_left": 0
+    "ratio_lr0.01": 0.03176026440998109,
+    "ratio_lr0.01_mse": 0.010188469524531276,
+    "ratio_lr0.01_kept": 810,
+    "ratio_lr0.01_outliers_left": 0,
+    "ratio_lr0.1": 0.03174452969973787,
+    "ratio_lr0.1_mse": 0.010188578130193731,
+    "ratio_lr0.1_kept": 810,
+    "ratio_lr0.1_outliers_left": 0,
+    "ratio_lr0.5": 0.03175445298249585,
+    "ratio_lr0.5_mse": 0.010188492886498006,
+    "ratio_lr0.5_kept": 810,
+    "ratio_lr0.5_outliers_left": 0
   }
 }

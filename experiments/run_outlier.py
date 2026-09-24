@@ -1,13 +1,14 @@
 """Experiment 2 on the development dataset (seed 0): outlier study on a
-two-population mixture, with the first version of "ours" (log E0-E2).
+two-population mixture, with ``ours_v1``, the first version of the method
+(log E0-E2).
 
 Parts
 -----
 1. Oracle fit on the clean population only (``z == 1``).
 2. Naive fit on all data (contaminated by the outlier population).
 3. Optimizer grid (GD/AdaGrad/RMSProp/Adam) evaluated on the clean population.
-4. "ours": periodic residual-cutoff + re-init Adam.
-5. Learning-rate sweep of "ours" (weight-error convergence plot).
+4. ``ours_v1``: periodic residual-cutoff + re-init Adam.
+5. Learning-rate sweep of ``ours_v1`` (weight-error convergence plot).
 
 Usage
 -----
@@ -69,8 +70,8 @@ def main():
     df.to_csv(os.path.join(OUT_DIR, "optimizer_grid.csv"), index=False)
     print()
 
-    # --- Part 4: "ours" (periodic residual removal + re-init) ---------------
-    print("=== Part 4: ours (outlier removal) ===")
+    # --- Part 4: ours_v1 (periodic residual removal + re-init) --------------
+    print("=== Part 4: ours_v1 (outlier removal) ===")
     w, est_hist, w_hist = ours_v1(
         X, y, w1, init_type="random", learning_rate=0.01, num_epochs=1000,
         reset_interval=200, outlier_ratio=0.1,
@@ -86,14 +87,14 @@ def main():
         json.dump({
             "part1_oracle_clean": part1,
             "part2_naive_all": part2,
-            "part4_ours": {
+            "part4_ours_v1": {
                 "final_mse": float(est_hist[-1]),
                 "final_weight_error": float(w_hist[-1]),
             },
         }, f, indent=2)
     print()
 
-    # --- Part 5: learning-rate sweep of "ours" ------------------------------
+    # --- Part 5: learning-rate sweep of ours_v1 -----------------------------
     print("=== Part 5: learning-rate sweep (weight error) ===")
     learning_rates = [0.01, 0.1, 0.5]
     curves = {}
@@ -104,7 +105,7 @@ def main():
             eval_X=X, eval_y=y, eval_mask=clean_mask, seed=0)
         curves[f"lr = {lr}"] = w_hist
     plot_curves(curves, xlabel="Epoch", ylabel="Weight Error (L2 norm)",
-                title="ours: weight-error convergence by learning rate",
+                title="ours_v1: weight-error convergence by learning rate",
                 save_path=os.path.join(OUT_DIR, "lr_sweep.png"))
     print(f"\nArtifacts saved to {OUT_DIR}")
 

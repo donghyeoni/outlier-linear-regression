@@ -8,8 +8,13 @@
     "stop_k": 3.0,
     "converge_tol": 1e-05,
     "num_cycles": 5,
-    "seed": 0,
-    "learning_rate": 0.1
+    "learning_rate": 0.1,
+    "init_type": "random",
+    "max_cycle_epochs": 20000,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "epsilon": 1e-08,
+    "seed": 0
   },
   "n_datasets": 100,
   "outliers_per_dataset": [

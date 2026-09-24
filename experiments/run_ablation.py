@@ -1,4 +1,5 @@
-"""Ablation of the two fixes to "ours", on the development dataset (seed 0).
+"""Ablation of the two fixes to ``ours_v1`` on the development dataset
+(seed 0; log E3).
 
 Step 1 adds only the stopping rule (fixed 200-epoch cycles), sweeping its
 threshold ``k``. Step 2 adds only per-cycle convergence (no stopping rule),

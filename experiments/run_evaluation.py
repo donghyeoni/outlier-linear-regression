@@ -21,6 +21,7 @@ Usage
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 
@@ -28,7 +29,10 @@ import numpy as np
 import pandas as pd
 
 from outlier_regression.data import generate_mixture_data
-from outlier_regression.outlier_removal import (FINAL_CONFIG, ours,
+from outlier_regression.diagnostics import (excluded_clean_noise_signs,
+                                            outlier_xw1, set_changes,
+                                            true_noise)
+from outlier_regression.outlier_removal import (FINAL_CONFIG, ours, ours_v2,
                                               robust_scale)
 from outlier_regression.plots import plot_weight_error_strip
 from outlier_regression.regression import closed_form_solution, weight_error
@@ -40,12 +44,14 @@ OUT_DIR = os.path.join(REPO_ROOT, "results", "evaluation")
 
 SEEDS = range(141, 241)
 LEARNING_RATES = (0.01, 0.1, 0.5)
-FINAL = {"prune_rule": "readmit", "stop_k": 3.0, "converge_tol": 1e-5,
-         "num_cycles": 5, "seed": 0}
-# the recorded configuration must be the defaults of ours()
-assert {k: v for k, v in FINAL.items() if k != "seed"} == {
-    k: v for k, v in FINAL_CONFIG.items() if k != "learning_rate"}
-assert FINAL_CONFIG["learning_rate"] == 0.1
+# every setting in effect: the ours() defaults, the ours_v2 defaults they
+# rely on, and the weight-initialisation seed
+RECORDED_CONFIG = {**FINAL_CONFIG,
+                   **{k: v.default for k, v in
+                      inspect.signature(ours_v2).parameters.items()
+                      if k in ("init_type", "max_cycle_epochs", "beta1",
+                               "beta2", "epsilon")},
+                   "seed": 0}
 N_FLIPS = 100_000
 N_BOOT = 10_000
 NOISE_STD = 0.1
@@ -67,7 +73,7 @@ def run_ours(X, y, z, w1, lr, num_cycles=5):
 def evaluate(seed):
     X, y, z, w1, _ = generate_mixture_data(N=1000, D=4, p=0.9, seed=seed)
     clean = z == 1
-    noise = y - np.where(clean, 1.0, -1.0) * (X @ w1)
+    noise = true_noise(X, y, z, w1)
     row = {
         "seed": seed,
         "n_outliers": int(np.sum(~clean)),
@@ -82,15 +88,14 @@ def evaluate(seed):
             continue
         kept = info["kept_idx"]
         kept_clean = kept[clean[kept]]
-        kept_out = kept[~clean[kept]]
-        removed_out = np.setdiff1d(np.flatnonzero(~clean), kept)
-        first = sets[0] if sets else kept
-        excl_first = np.setdiff1d(np.flatnonzero(clean), first)
-        excl_final = np.setdiff1d(np.flatnonzero(clean), kept)
+        first = sets[0] if sets else kept  # no re-selection: first set kept
+        first_pos, first_neg = excluded_clean_noise_signs(noise, z, first)
+        final_pos, final_neg = excluded_clean_noise_signs(noise, z, kept)
+        xw_kept, xw_removed = outlier_xw1(X, w1, z, kept)
         row.update({
             "ours": w_hist[-1],
             "ours_clean_kept": int(len(kept_clean)),
-            "ours_outliers_left": int(len(kept_out)),
+            "ours_outliers_left": int(len(xw_kept)),
             "ours_stopped": info["stopped_at_cycle"] is not None,
             "ours_cycles": len(info["cycle_epochs"]),
             "ours_max_cycle_epochs": int(max(info["cycle_epochs"])),
@@ -101,14 +106,15 @@ def evaluate(seed):
                 closed_form_solution(X[kept], y[kept]), w1),
             "refit_without_kept_outliers": weight_error(
                 closed_form_solution(X[kept_clean], y[kept_clean]), w1),
-            "excl_first_pos": int(np.sum(noise[excl_first] > 0)),
-            "excl_first_neg": int(np.sum(noise[excl_first] < 0)),
-            "excl_final_pos": int(np.sum(noise[excl_final] > 0)),
-            "excl_final_neg": int(np.sum(noise[excl_final] < 0)),
-            "xw1_kept_outliers": ";".join(f"{v:.6f}" for v in X[kept_out] @ w1),
-            "xw1_removed_outliers_sum": float(np.sum(X[removed_out] @ w1)),
-            "xw1_removed_outliers_n": int(len(removed_out)),
-            "xw1_removed_outliers_min": float(np.min(X[removed_out] @ w1)),
+            "excl_first_pos": first_pos,
+            "excl_first_neg": first_neg,
+            "excl_final_pos": final_pos,
+            "excl_final_neg": final_neg,
+            "xw1_kept_outliers": ";".join(f"{v:.6f}" for v in xw_kept),
+            "xw1_removed_outliers_sum": float(np.sum(xw_removed)),
+            "xw1_removed_outliers_n": int(len(xw_removed)),
+            "xw1_removed_outliers_min": (float(np.min(xw_removed))
+                                         if len(xw_removed) else np.nan),
         })
     grid, _ = run_experiment(X, y, w1, learning_rate=0.01, num_epochs=1000,
                              batch_size=32, record="eval", eval_X=X,
@@ -165,16 +171,14 @@ def main():
             "seed": int(s),
             "stopped_at_cycle_with_cap_20": info["stopped_at_cycle"],
             "inlier_set_sizes": [len(a) for a in sets],
-            "changes_between_cycles": [
-                int(len(np.setxor1d(sets[i], sets[i - 1])))
-                for i in range(1, len(sets))],
+            "changes_between_cycles": set_changes(sets),
             "weight_error_cap_5": float(df.loc[df.seed == s, "ours"].iloc[0]),
             "weight_error_cap_20": float(w_hist[-1]),
         })
 
     summary = {
         "seeds": [SEEDS.start, SEEDS.stop - 1],
-        "final_config": {**FINAL, "learning_rate": 0.1},
+        "final_config": RECORDED_CONFIG,
         "n_datasets": int(len(df)),
         "outliers_per_dataset": [int(df.n_outliers.min()), int(df.n_outliers.max())],
         "clean_per_dataset_mean": float(df.n_clean.mean()),

@@ -12,5 +12,6 @@ outlier_removal : ``ours`` (the final method), ``ours_v2`` (the general
                   convergence and the ratio / threshold / readmit pruning
                   rules) and ``ours_v1`` (the first version)
 stats           : paired tests (sign, sign-flip, bootstrap CI, Wilcoxon)
-plots           : convergence plotting helpers
+diagnostics     : descriptions of an inlier selection using the true labels
+plots           : convergence plots and per-dataset strip plots
 """

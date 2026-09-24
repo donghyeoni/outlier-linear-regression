@@ -46,6 +46,8 @@ def wilcoxon_signed_rank(diff):
     d = np.asarray(diff, dtype=float)
     d = d[d != 0]
     n = len(d)
+    if n == 0:  # every difference is zero: no evidence either way
+        return 0.0, 0.0, 1.0
     order = np.argsort(np.abs(d))
     ranks = np.empty(n)
     abs_sorted = np.abs(d)[order]

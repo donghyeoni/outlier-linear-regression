@@ -24,8 +24,8 @@ import run_baseline
 import run_confirmatory
 import run_eval_extra
 import run_evaluation
-import run_final
 import run_outlier
+import run_ratio_heldout
 import run_readmit
 import run_threshold
 
@@ -35,7 +35,7 @@ STEPS = [
     ("pruning diagnostic (ours_v1)", diagnose_pruning),
     ("MSE vs weight error analysis (ours_v1)", analyze_mse_vs_weight),
     ("ablation: stopping rule / per-cycle convergence", run_ablation),
-    ("ratio-based method on held-out datasets", run_final),
+    ("ratio-based method on held-out datasets", run_ratio_heldout),
     ("ratio vs threshold pruning", run_threshold),
     ("re-admission pruning (fresh seeds 21-40)", run_readmit),
     ("pre-registered confirmatory test (seeds 41-140)", run_confirmatory),
