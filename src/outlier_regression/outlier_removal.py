@@ -2,7 +2,7 @@
 
 * :func:`ours_v1` -- the starting method: fixed-length cycles of full-batch
   Adam, removal of the top ``outlier_ratio`` fraction of absolute residuals
-  after each cycle, re-initialisation.
+  after every cycle but the last, re-initialisation.
 * :func:`ours_v2` -- the general implementation used in development: optional
   per-cycle convergence, a MAD-based stopping rule, and the ratio / threshold
   / readmit pruning rules.
