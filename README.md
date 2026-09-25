@@ -29,9 +29,12 @@ NumPy로 직접 구현하였다. 모든 실행의 설정, 전체 결과 표, 판
 
 ```mermaid
 flowchart LR
-    E1["실험 1<br/>정상 데이터<br/>optimizer grid"] --> D["개발 (seed 0–19)<br/>D0 기준선 → D1 ours_v1<br/>→ D2–D5 한 요소씩 수정"]
-    D --> F["설정 고정<br/>평가 계획 기록"]
-    F --> T["최종 평가 (seed 100–199)<br/>사전 등록 검정 4개"]
+    E1["실험 1: 정상 데이터<br/>optimizer grid"]
+    subgraph X2["실험 2: 혼합 데이터 (이상치 10%)"]
+        D["개발 (seed 0–19)<br/>D0 기준선 → D1 ours_v1<br/>→ D2–D5 한 요소씩 수정"] --> F["설정 고정<br/>평가 계획 기록"]
+        F --> T["최종 평가 (seed 100–199)<br/>사전 등록 검정 4개"]
+    end
+    E1 --> D
 ```
 
 *그림 2. 실험 구성.*
@@ -77,7 +80,9 @@ closed-form solution의 weight error는 0.0168 ± 0.0088이다(데이터셋 20�
 
 *그림 4. 정상 데이터에서 iteration별 평균 weight error(full batch, zero init).*
 
-### 개발 과정 (개발 데이터셋 20개)
+### 실험 2: 혼합 데이터
+
+#### 개발 과정 (개발 데이터셋 20개)
 
 | 단계 | 로그 | weight error(평균 ± 표준편차) | 중앙값 |
 | --- | --- | --- | --- |
@@ -95,7 +100,7 @@ closed-form solution의 weight error는 0.0168 ± 0.0088이다(데이터셋 20�
 
 *그림 5. 개발 단계별 데이터셋 weight error(log scale). 막대와 숫자는 중앙값이다.*
 
-### 최종 평가 (평가 데이터셋 100개)
+#### 최종 평가 (평가 데이터셋 100개)
 
 | 방법 | weight error(평균 ± 표준편차) | 중앙값 |
 | --- | --- | --- |

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 
-import numpy as np
 import pandas as pd
 
 from common import DEV_SEEDS, f4, md_table, out_dir, write_tables

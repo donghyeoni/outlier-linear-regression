@@ -18,7 +18,7 @@ from outlier_regression.data import generate_linear_data
 from outlier_regression.optimizers import OPTIMIZERS
 from outlier_regression.plots import plot_curves
 from outlier_regression.regression import closed_form_solution, weight_error
-from outlier_regression.train import BATCH_TYPES, INIT_TYPES, run_grid
+from outlier_regression.train import run_grid
 
 KEYS = ["optimizer", "batch", "init", "lr"]
 
