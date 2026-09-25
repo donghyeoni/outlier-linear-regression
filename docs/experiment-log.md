@@ -15,6 +15,8 @@ development process lives here.
   are `r = Xŵ − y`. Standard deviations are population standard deviations.
 - **Epoch.** One parameter update. Full batch uses all data, mini-batch 32
   samples, SGD one sample.
+- **Initializations.** `random`: `N(0, 1)`; `zero`: all zeros; `sparse`:
+  `N(0, 1)` with each entry set to 0 with probability 0.8 (about 80%).
 - **Seed.** A dataset seed determines `X`, the true weights, the noise and
   which samples are outliers.
 - **Noise.** `ε = y − x·w`, with `w` the true weights of the sample's own
@@ -339,8 +341,12 @@ error from 0.043 to 0.030–0.032, the oracle level. At lr 0.01 it helps
 
 When every cycle converges, lr 0.01 makes exactly the same pruning decisions
 as lr 0.1 and ends at the same error. So limitation ① was entirely a
-convergence problem. Tolerances 1e-4–1e-6 give the same pruning decisions.
-The final weight errors of 1e-5 and 1e-6 agree to four decimals; 1e-4
+convergence problem. At lr 0.1 / 0.5, tolerances 1e-4–1e-6 remove identical
+sample sets; at lr 0.01, the set kept by 1e-4 differs from that of 1e-5 by 2
+samples after the third prune and is identical again after the fourth, so
+the removed sets differ in the third and fourth prunes (the outlier counts
+are identical).
+The final weight errors of 1e-5 and 1e-6 differ by at most 2e-5; 1e-4
 differs from them by up to 0.0003, and 1e-3 stops slightly early
 (0.041–0.044). Chose `tol = 1e-5`.
 
@@ -471,7 +477,8 @@ uses fresh seeds 21–40.
 | ratio (E3) | 0.0218 ± 0.0093 | 0.0224 ± 0.0102 |
 | readmit | 0.0190 ± 0.0078 | 0.0201 ± 0.0094 |
 
-These are the lr 0.1 values. lr 0.01 / 0.5 are identical to four decimals.
+These are the lr 0.1 values. lr 0.01 / 0.5 are identical to four decimals,
+except ratio at lr 0.01 on seeds 21–40 (0.0217).
 
 | readmit (seeds 21–40) | value |
 | --- | --- |
@@ -499,8 +506,8 @@ These are the lr 0.1 values. lr 0.01 / 0.5 are identical to four decimals.
   They are close to the regression surface. Their effect on the fit is
   measured in E8.
 - Two runs (seeds 17 and 23) reached the 5-cycle cap before the set stopped
-  changing. This is not oscillation: the set changes by 1–2 samples per
-  cycle. With a 20-cycle cap both stop at cycle 5 with the same weight error
+  changing. This is not oscillation: after the first re-selection, the set
+  changes by 1–2 samples per cycle. With a 20-cycle cap both stop at cycle 5 with the same weight error
   (`capped_runs_with_20_cycles` in the summary).
 
 **Decision.** Readmit is a candidate (small, consistent improvement, one
@@ -546,7 +553,9 @@ Ran exactly as planned. `experiments/run_confirmatory.py` →
 
 - readmit − ratio: mean −0.00253, 95% bootstrap CI [−0.00376, −0.00133].
   Readmit is better on 65 / 100 datasets. The sample SD of the differences
-  is 0.0062, close to the planning estimate (0.0081, also a sample SD).
+  is 0.0062, close to the planning estimate (about 0.0081, derived from the
+  t statistic; the recomputed sample SD on seeds 21–40 is 0.0082,
+  `sd_diff_sample` in `step4_readmit_summary.json`).
 - Primary, sign-flip permutation: **p = 0.00012**. Secondary, Wilcoxon
   signed-rank: z = −3.72, p = 0.00020.
 - **Decision (per the pre-registered rule): adopt readmit as the final
@@ -808,8 +817,8 @@ Largest per-dataset difference between learning rates: 0.0015.
 
 **Optimizer grid (lr 0.01, 1000 epochs, mini-batch size 32).** Every optimizer
 minimizes the same convex loss (MSE on all data), whose unique minimizer is
-the Naive solution. Adam(`full`, `zero`) matches Naive within
-0.00055 on every dataset. A configuration whose value differs
+the Naive solution. Adam(`full`, `zero`) matches the Naive weight error
+within 0.00055 on every dataset. A configuration whose value differs
 from Naive has not reached the minimum within 1000 epochs. The smallest mean
 over the 36 configurations is 0.1882 (RMSProp, `SGD`, `zero`).
 
@@ -897,10 +906,11 @@ after the 6th and 7th cycle, and their weight error changes (0.0108 → 0.0094,
 
 **Settings of the final method (README table 1).** All fixed before E8.
 `k = 3` (conventional 3σ cut; no other value was tried for the final
-method), convergence tolerance 1e-5 (chosen in E3; 1e-4–1e-6 give the same
-pruning decisions on seed 0), at most 5 cycles (fixed in E3), at most 20000
+method), convergence tolerance 1e-5 (chosen in E3; at learning rate 0.1,
+1e-4–1e-6 give the same pruning decisions on seed 0), at most 5 cycles (fixed in E3), at most 20000
 epochs per cycle (a cap large enough for the tolerance to apply first), lr
-0.1 (chosen in E3), initial weights `N(0, 1)` with seed 0 in every cycle,
+0.1 (chosen in E3), initial weights `N(0, 1)`, drawn afresh in every cycle
+from a generator seeded once with 0,
 Adam β1 = 0.9, β2 = 0.999, ε = 1e-8. The last cycle does not re-select: after
 cycle 5 the method stops. E8 confirms that the longest cycle needed 242
 epochs and that lr 0.01 and 0.5 give the same mean weight error.

@@ -74,6 +74,7 @@ def evaluate(seed):
 def paired_tests(diff, n_flips=100_000):
     """Two-sided sign test and sign-flip permutation test for mean(diff)."""
     return {"n": len(diff), "mean_diff": float(diff.mean()),
+            "sd_diff_sample": float(diff.std(ddof=1)),
             "readmit_better": int(np.sum(diff < 0)),
             "p_sign_test": sign_test_p(diff),
             "p_sign_flip": sign_flip_p(diff, n_flips,

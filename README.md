@@ -7,10 +7,10 @@
 복원하는 방법(`ours`)을 제안하고 평가한다.
 
 데이터는 두 집단의 혼합으로 구성된다. 각 샘플은 확률 0.9로 weight `w1`을 따르는 정상
-집단에, 확률 0.1로 부호가 반전된 `w2 = -w1`을 따르는 이상치 집단에 속한다. 그림 1은 입력이
-1차원인 경우의 예시이다(점 200개 중 이상치 20개, 실제 기울기 1). 정상 집단만으로
+집단에, 확률 0.1로 부호가 반전된 `w2 = -w1`을 따르는 이상치 집단에 속한다. 그림 1은
+입력이 1차원인 경우의 예시이다(점 200개 중 이상치 20개, 실제 기울기 1). 정상 집단만으로
 최소제곱 적합을 하면 기울기는 1.01이지만, 이상치를 포함한 전체 데이터로 적합하면
-0.84로 편향된다.
+0.84가 된다.
 
 <p align="center">
   <img src="docs/images/concept.png" alt="그림 1" width="480">
@@ -19,7 +19,7 @@
 *그림 1. 이상치 혼입에 따른 회귀선 편향(1차원 예시, 설명용 합성 데이터).*
 
 모든 optimizer(GD, AdaGrad, RMSProp, Adam)와 closed-form solution은 scikit-learn이나
-autograd 없이 NumPy로 직접 구현하였다. 방법의 개발 과정은
+autograd 없이 NumPy로 직접 구현하였다. 방법의 개발 과정과 세부 수치는
 [`docs/experiment-log.md`](docs/experiment-log.md)에 기록한다.
 
 ## 실험 내용
@@ -43,8 +43,7 @@ autograd 없이 NumPy로 직접 구현하였다. 방법의 개발 과정은
   - **MSE**: 실험 1에서만 사용한다. optimizer의 MSE는 마지막 epoch에서 갱신 직전의
     예측으로 구한 해당 batch의 평균 제곱 오차이고(full batch에서는 전체 데이터의 학습
     MSE), closed-form solution의 MSE는 전체 데이터의 평균 제곱 오차이다.
-- **표기:** residual은 `r = Xŵ − y`이다. 샘플의 노이즈는 `ε = y − x·w`이며, `w`는 그
-  샘플이 속한 집단의 실제 weight(`w1` 또는 `w2`)이다. 표준편차는 모집단 표준편차이다.
+- **표기:** residual은 `r = Xŵ − y`이다. 표준편차는 모집단 표준편차이다.
 
 실험 구성은 그림 2와 같다.
 
@@ -68,7 +67,7 @@ flowchart TD
 ### 실험 1: 정상 데이터에서의 optimizer 비교
 
 이상치가 없는 데이터에서 네 optimizer가 closed-form solution에 수렴하는지
-검증한다. 이후 실험에서 사용할 optimizer 구현의 정확성을 확인하는 기준 실험이다.
+확인한다. 이후 실험에서 사용할 optimizer 구현을 검증하는 기준 실험이다.
 
 - optimizer 4종 × init 3종 × batch 3종(`full`, `mini-batch` 32, `SGD`)의 전체 조합.
   init은 `random`(`N(0, 1)`), `zero`(전부 0), `sparse`(`N(0, 1)`에서 약 80%를 0으로)이다.
@@ -81,13 +80,11 @@ flowchart TD
 다음 네 조건을 비교한다.
 
 1. **Oracle:** 집단 label `z`를 이용해 정상 집단만으로 구한 closed-form
-   solution(pseudo-inverse). 실제로는 `z`를 알 수 없으므로 비교 기준으로 사용한다. 개별
-   데이터셋에서는 다른 방법이 더 작은 오차를 보일 수 있다.
+   solution(pseudo-inverse). 실제로는 `z`를 알 수 없으므로 비교 기준으로 사용한다.
 2. **Naive:** 전체 데이터에 대한 closed-form solution(pseudo-inverse). 이상치를
    처리하지 않은 기준선이다.
-3. **optimizer grid:** 실험 1과 같은 36개 조합(learning rate 0.01, 1000 epoch). 모든
-   optimizer는 전체 데이터의 MSE라는 같은 볼록 손실을 최소화하므로, 수렴하면 Naive
-   해에 도달한다. optimizer 선택만으로 이상치의 영향이 줄어드는지 확인한다.
+3. **optimizer grid:** 실험 1과 같은 36개 조합(learning rate 0.01, 1000 epoch).
+   optimizer 선택만으로 이상치의 영향이 줄어드는지 확인한다.
 4. **`ours`:** 제안 방법.
 
 ### 제안 방법: `ours`
@@ -117,46 +114,40 @@ flowchart LR
 
 *그림 3. `ours`의 학습 절차.*
 
-첫 cycle의 적합은 이상치의 영향을 받아 편향되어 있으므로, 이때 제외된 정상 샘플은
-residual 분포의 한쪽 꼬리에 몰린다. `ours`는 제외를 영구적으로 두지 않고 매 cycle
-전체 샘플에서 inlier를 다시 선정하여 이 편향을 줄인다. 평가 데이터셋 100개에서 첫
-cycle 뒤 제외된 정상 샘플은 노이즈가 양수인 샘플 3482개, 음수인 샘플 33개였으나,
-최종적으로 제외된 정상 샘플은 양수 129개, 음수 126개이다. `σ_MAD`는 MAD 기반
-추정량으로, 최종 cycle의 값은 평균 0.0994(범위 0.0888–0.1129)로 실제 노이즈 표준편차
-0.1에 가깝다.
+첫 cycle의 적합은 이상치의 영향을 받으므로, 이때 제외되는 정상 샘플은 residual
+분포의 한쪽으로 치우칠 수 있다. `ours`는 매 cycle 전체 샘플에서 inlier를 다시 선정하여,
+앞선 cycle에서 제외된 샘플이 다시 포함될 수 있게 한다. 개발 과정에서의 비교와 세부
+진단은 로그(E4, E5, E8)에 기록한다.
 
 *표 1. `ours`의 설정값.*
 
-| 항목 | 값 | 근거 |
-| --- | --- | --- |
-| 재선정 기준 `k`(`k·σ_MAD`) | 3 | 관례적인 3σ 기준. 다른 값은 시험하지 않았다 |
-| 수렴 기준(gradient norm) | `1e-5` | 개발 단계에서 선택. `seed=0`의 비교(로그 E3)에서 `1e-4`–`1e-6`의 pruning 결정이 같았다 |
-| 최대 cycle 수 | 5 | 개발 단계에서 고정(로그 E3) |
-| cycle당 최대 epoch | 20000 | 수렴 기준이 먼저 적용되도록 크게 둔 상한 |
-| learning rate | 0.1 | 개발 단계에서 선택(로그 E3) |
-| 초기 weight | `N(0, 1)`, seed 0 | 모든 cycle에서 재초기화 |
-| Adam | `β1 = 0.9`, `β2 = 0.999`, `ε = 1e-8` | 표준값 |
+| 항목 | 값 |
+| --- | --- |
+| 재선정 기준 `k`(`k·σ_MAD`) | 3 |
+| 수렴 기준(gradient norm) | `1e-5` |
+| 최대 cycle 수 | 5 |
+| cycle당 최대 epoch | 20000 |
+| learning rate | 0.1 |
+| 초기 weight | `N(0, 1)`. seed 0으로 한 번 설정한 난수열에서 매 cycle 새로 추출 |
+| Adam | `β1 = 0.9`, `β2 = 0.999`, `ε = 1e-8` |
 
-설정값은 모두 최종 평가 전에 정하였다. 최종 평가에서 한 cycle에 필요한 epoch는 최대
-242였고, learning rate를 0.01, 0.5로 바꾸어도 평균 weight error는 같았다(요약 4).
-
-구현은 `src/outlier_regression/outlier_removal.py`의 `ours(X, y, w_ref)`이며, 기본
-설정값은 표 1과 같다.
+설정값은 개발 단계에서 정하였으며(로그 E3–E6), 최종 평가 전에 고정하였다. 구현은
+`src/outlier_regression/outlier_removal.py`의 `ours(X, y, w_ref)`이며, 기본 설정값은
+표 1과 같다.
 
 ## 결과
 
 ### 요약
 
-1. 정상 데이터의 `init=zero`, `batch=full` 설정에서 GD, AdaGrad, Adam은 closed-form
-   solution(weight error 0.0236)에 수렴한다.
+1. 정상 데이터의 `init=zero`, `batch=full` 설정에서 GD, AdaGrad, Adam의 weight error는
+   closed-form solution과 소수점 다섯째 자리까지 같다(0.02362).
 2. 10%의 이상치만으로 Naive 해의 weight error는 Oracle의 약 13.2배(평균 0.0188 →
-   0.2478)로 증가한다. optimizer grid에서 수렴한 조건은 Naive 해에 도달하며, 36개
-   조합 중 평균 weight error가 0.1882보다 작은 조합은 없다.
+   0.2478)로 증가한다. optimizer grid의 36개 조합 중 평균 weight error가 가장 작은
+   조합도 0.1882이다.
 3. `ours`는 평가 데이터셋 100개 모두에서 Naive보다 작은 weight error를 보이며, 평균
-   weight error를 0.0188로 Naive 대비 92.4% 줄인다. Oracle과의 평균 차이는 +0.00003으로
+   weight error는 0.0188로 Naive 대비 92.4% 작다. Oracle과의 평균 차이(+0.00003)는
    통계적으로 유의하지 않다.
-4. `ours`의 결과는 learning rate에 거의 영향을 받지 않는다. learning rate 0.01, 0.1,
-   0.5에서 평균 weight error는 모두 0.0188이며, 데이터셋별 차이는 최대 0.0015이다.
+4. learning rate 0.01, 0.1, 0.5에서 `ours`의 평균 weight error는 모두 0.0188이다.
 
 ### 실험 1: 정상 데이터
 
@@ -175,8 +166,8 @@ closed-form solution의 weight error는 **0.0236**, MSE는 **0.0103**이다.
 | RMSProp | 0.02108 | 0.10608 |
 | Adam | 0.01028 | 0.02362 |
 
-GD, AdaGrad, Adam은 closed-form solution과 같은 값에 수렴한다. RMSProp은 learning
-rate 0.1에서 진동하며 closed-form solution에 도달하지 않는다
+RMSProp은 learning rate 0.1에서 마지막 100 epoch 동안 weight error가 진동하며,
+closed-form solution에 도달하지 않는다
 ([`results/baseline/convergence_tail.json`](results/baseline/convergence_tail.json)).
 
 | MSE | weight error |
@@ -208,35 +199,25 @@ error(우).*
 *그림 5. 평가 데이터셋 100개에서의 방법별 weight error(log scale). 점 하나가
 데이터셋 하나이며, 검은 막대와 숫자는 중앙값이다.*
 
-- **optimizer grid:** full-batch Adam(`zero` 초기화)은 모든 데이터셋에서 Naive 해와
-  0.00055 이내로 일치한다. 손실의 최솟값은 Naive 해 하나뿐이므로, Naive와 다른 값을
-  보이는 조합은 1000 epoch 안에 최솟값에 도달하지 못한 경우이다. 36개 조합 중 평균
-  weight error가 가장 작은 조합도 0.1882이다(전체 조합은
-  [`results/evaluation/summary.json`](results/evaluation/summary.json)). optimizer
-  선택만으로는 이상치의 영향이 제거되지 않는다.
+- **optimizer grid:** 모든 optimizer는 전체 데이터의 MSE라는 같은 손실을 최소화하며,
+  이 손실을 최소화하는 해는 Naive 해이다. full-batch Adam(`zero` 초기화)의 weight error는
+  데이터셋별로 Naive와 0.00055 이내로 일치한다. 36개 조합 중 평균 weight error가 가장
+  작은 조합도 0.1882이다(전체 조합은
+  [`results/evaluation/summary.json`](results/evaluation/summary.json)).
 - **Oracle과의 비교:** `ours`와 Oracle의 평균 weight error 차이는 +0.00003이며,
   통계적으로 유의하지 않다(95% bootstrap 신뢰구간 [−0.00044, +0.00049], 양측
   sign-flip 검정 p = 0.895). 100개 중 49개에서는 `ours`의 weight error가 Oracle보다
-  작다. Oracle은 정상 샘플을 모두 사용하는 반면, `ours`는 residual이 `3·σ_MAD`를 넘는
-  정상 샘플(평균 2.55개)을 제외하고 residual이 작은 일부 이상치를 포함한다. 두 해는
-  서로 다른 샘플 집합에 대한 최소제곱 해이므로, 개별 데이터셋에서의 우열은 두 집합의
-  차이에 따라 달라진다.
-- **남긴 샘플:** `ours`가 최종적으로 남긴 정상 샘플은 평균 896.25개로, 정상 샘플(평균
-  898.8개)의 99.7%이다.
+  작다. Oracle은 정상 샘플을 모두 사용하고, `ours`는 정상 샘플 일부(평균 2.55개)를
+  제외하는 대신 이상치 일부(100개 데이터셋에서 총 35개)를 포함하므로, 두 방법은 서로
+  다른 샘플 집합에 적합된다.
 
 ### 한계
 
 - residual이 `3·σ_MAD` 이내인 이상치는 제거되지 않는다. 평가 데이터셋 100개 중 24개에서
-  이상치가 남았으며(총 35개), 이들은 `x·w1`이 작아 회귀면 근처에 놓인 샘플이다. 남은
-  이상치의 `x·w1`은 평균 0.155(최대 0.225)로, 제거된 이상치의 평균 1.004보다 작다. 최종
-  inlier 집합을 closed-form으로 다시 적합할 때 남은 이상치를 제외하면, 포함했을 때와
-  비교해 weight error가 최대 0.0030 달라진다.
+  이상치가 남았다(총 35개).
 - 평가 데이터셋 100개 중 11개는 5 cycle 안에 inlier 집합이 더 이상 바뀌지 않음을
-  확인하지 못하였다. 최대 cycle을 20으로 늘려 확인한 결과, 9개는 5번째 cycle 이후
-  집합이 바뀌지 않아 결과가 같았다. 나머지 2개(`seed=169`, `seed=232`)는 각각 6번째,
-  7번째 cycle을 마친 뒤에 집합이 고정되었으며, weight error는 0.0108에서 0.0094로,
-  0.0350에서 0.0355로 달라진다.
-- 재선정 기준 `k`는 3만 사용하였으며, 다른 값에서의 결과는 확인하지 않았다.
+  확인하지 못하였다. 이 중 2개는 최대 cycle을 늘리면 결과가 달라진다(로그 E8).
+- 재선정 기준 `k`는 3만 사용하였다.
 
 ### 후속 연구
 
