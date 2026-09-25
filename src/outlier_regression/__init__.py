@@ -3,15 +3,13 @@ regression, and the impact of outliers.
 
 Modules
 -------
-data            : synthetic data generators (clean & two-population mixture)
+data            : synthetic data generators (clean and two-population mixture)
 optimizers      : hand-coded GD / AdaGrad / RMSProp / Adam update steps
-regression      : closed-form normal-equation solver
-train           : unified trainer + experiment grid runner
-outlier_removal : ``ours`` (the final method), ``ours_v2`` (the general
-                  implementation with the stopping rule, per-cycle
-                  convergence and the ratio / threshold / readmit pruning
-                  rules) and ``ours_v1`` (the first version)
-stats           : paired tests (sign, sign-flip, bootstrap CI, Wilcoxon)
-diagnostics     : descriptions of an inlier selection using the true labels
-plots           : convergence plots and per-dataset strip plots
+regression      : closed-form least squares and the weight error
+train           : trainer and optimizer-grid runner
+outlier_removal : ``ours_v1`` (starting method), ``ours_v2`` (general
+                  implementation used in development) and ``ours`` (final)
+stats           : paired sign-flip test and bootstrap CI
+diagnostics     : descriptions of a sample selection using the true labels
+plots           : learning curves and per-dataset strip plots
 """

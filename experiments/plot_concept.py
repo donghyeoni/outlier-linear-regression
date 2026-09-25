@@ -22,7 +22,8 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from common import REPO_ROOT
+
 OUT_DIR = os.path.join(REPO_ROOT, "docs", "images")
 
 # Korean-capable fonts, applied only while this figure is drawn so the other

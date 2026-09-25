@@ -1,13 +1,7 @@
-"""Trainer and experiment-grid runner.
+"""Trainer and optimizer-grid runner.
 
-One :func:`train` serves both experiments. The per-epoch metrics differ only
-in how the estimation error is recorded, selected by ``record``:
-
-* ``"batch"`` (experiment 1): the training MSE of the current batch, using
-  the *pre-update* prediction, and the weight error against ``w_true``;
-* ``"eval"`` (experiment 2): the MSE of the *post-update* prediction on an
-  evaluation set restricted to a mask (the clean population, ``z == 1``),
-  and the weight error against the clean weights ``w1``.
+One iteration is one parameter update. Full batch uses all samples,
+mini-batch 32 samples drawn without replacement, SGD one sample.
 """
 
 from __future__ import annotations
@@ -23,28 +17,26 @@ BATCH_TYPES = ("full", "mini-batch", "SGD")
 
 
 def initialize_weights(init_type: str, D: int) -> np.ndarray:
-    """Initialise a weight vector.
+    """Initialise a weight vector from the global NumPy RNG.
 
-    ``"random"`` draws from a standard normal, ``"zero"`` is all zeros, and
-    ``"sparse"`` is a random vector with ~80% of its entries zeroed out.
-    The RNG must already be seeded by the caller.
+    ``"random"`` draws from ``N(0, 1)``, ``"zero"`` is all zeros, and
+    ``"sparse"`` draws from ``N(0, 1)`` and sets each entry to 0 with
+    probability 0.8.
     """
     if init_type == "random":
-        w = np.random.randn(D)
-    elif init_type == "zero":
-        w = np.zeros(D)
-    elif init_type == "sparse":
+        return np.random.randn(D)
+    if init_type == "zero":
+        return np.zeros(D)
+    if init_type == "sparse":
         w = np.random.randn(D)
         w[np.random.rand(D) < 0.8] = 0
-    else:
-        raise ValueError(f"Unknown init_type: {init_type!r}. "
-                         f"Expected one of {INIT_TYPES}.")
-    return w
+        return w
+    raise ValueError(f"Unknown init_type: {init_type!r}. "
+                     f"Expected one of {INIT_TYPES}.")
 
 
-def select_batch(X: np.ndarray, y: np.ndarray, batch_type: str,
-                 batch_size: int):
-    """Return the ``(X_batch, y_batch)`` used for one update step."""
+def select_batch(X, y, batch_type: str, batch_size: int):
+    """Return the ``(X_batch, y_batch)`` used for one update."""
     N = X.shape[0]
     if batch_type == "full":
         return X, y
@@ -52,132 +44,72 @@ def select_batch(X: np.ndarray, y: np.ndarray, batch_type: str,
         idx = np.random.choice(N, batch_size, replace=False)
         return X[idx], y[idx]
     if batch_type == "SGD":
-        idx = np.random.randint(0, N)
-        return X[idx:idx + 1], y[idx:idx + 1]
+        i = np.random.randint(0, N)
+        return X[i:i + 1], y[i:i + 1]
     raise ValueError(f"Unknown batch_type: {batch_type!r}. "
                      f"Expected one of {BATCH_TYPES}.")
 
 
 def train(X, y, init_type, batch_type, optimizer_type, w_ref, *,
-          learning_rate=0.1, num_epochs=1000, batch_size=32,
-          record="batch", eval_X=None, eval_y=None, eval_mask=None,
-          seed=0):
-    """Train a linear model with a hand-coded optimizer.
+          learning_rate=0.1, num_iters=1000, batch_size=32, seed=0):
+    """Train a linear model on the MSE loss with a hand-coded optimizer.
+
+    The global NumPy RNG is seeded with ``seed`` before the weights are
+    initialised; batch sampling continues from the same stream.
+
+    Returns
+    -------
+    w : (D,) ndarray
+        Final weights.
+    weight_history : list[float]
+        ``||w - w_ref||`` after every iteration.
+    """
+    np.random.seed(seed)
+    w = initialize_weights(init_type, X.shape[1])
+    state = optimizers.init_state(w)
+    weight_history = []
+    for t in range(1, num_iters + 1):
+        X_b, y_b = select_batch(X, y, batch_type, batch_size)
+        grad = optimizers.mse_gradient(X_b, y_b, w)
+        w = optimizers.step(optimizer_type, w, grad, state, t, learning_rate)
+        weight_history.append(float(np.linalg.norm(w - w_ref)))
+    return w, weight_history
+
+
+def run_grid(X, y, w_ref, w_star, *, learning_rates=(0.01, 0.1),
+             num_iters=1000, batch_size=32, seed=0, keep_histories=False):
+    """Run every ``optimizer x batch x init x learning rate`` combination.
 
     Parameters
     ----------
-    X, y : ndarray
-        Training data.
-    init_type : {"random", "zero", "sparse"}
-    batch_type : {"full", "mini-batch", "SGD"}
-    optimizer_type : {"GD", "AdaGrad", "RMSProp", "Adam"}
     w_ref : ndarray
-        Reference weights used for the weight-error metric.
-    learning_rate, num_epochs, batch_size : float, int, int
-        Step size, number of updates, and mini-batch size.
-    record : {"batch", "eval"}
-        ``"batch"`` (experiment 1) records the pre-update batch MSE.
-        ``"eval"`` (experiment 2) records the post-update MSE evaluated on
-        ``eval_X``/``eval_y`` restricted to ``eval_mask``.
-    eval_X, eval_y, eval_mask : optional ndarray
-        Evaluation data / boolean mask used when ``record == "eval"``.
-        Default to ``X``/``y``/all-True.
-    seed : int
-        Seed applied at the start of training (weight init + batch sampling).
+        Reference weights of the weight error.
+    w_star : ndarray
+        Closed-form least-squares solution on ``(X, y)``; the distance
+        ``||w - w_star||`` measures how close an optimizer got to the
+        minimiser of its loss.
 
     Returns
     -------
-    w : ndarray
-        Final weights.
-    est_history : list[float]
-        Per-epoch estimation error.
-    weight_history : list[float]
-        Per-epoch weight error (``||w - w_ref||``).
-    """
-    np.random.seed(seed)
-    D = X.shape[1]
-
-    w = initialize_weights(init_type, D)
-    state = optimizers.init_state(w)
-
-    if eval_X is None:
-        eval_X = X
-    if eval_y is None:
-        eval_y = y
-    if eval_mask is None:
-        eval_mask = np.ones(eval_X.shape[0], dtype=bool)
-
-    est_history = []
-    weight_history = []
-
-    for epoch in range(1, num_epochs + 1):
-        X_batch, y_batch = select_batch(X, y, batch_type, batch_size)
-
-        # pre-update prediction (used by record="batch")
-        y_pred_batch = X_batch @ w
-        grad = optimizers.mse_gradient(X_batch, y_batch, w)
-
-        w = optimizers.step(optimizer_type, w, grad, state, epoch,
-                             learning_rate)
-
-        if record == "batch":
-            est_history.append(float(np.mean((y_batch - y_pred_batch) ** 2)))
-        elif record == "eval":
-            y_pred_eval = eval_X @ w
-            est_history.append(float(np.mean(
-                (eval_y[eval_mask] - y_pred_eval[eval_mask]) ** 2)))
-        else:
-            raise ValueError(f"Unknown record mode: {record!r}. "
-                             f"Expected 'batch' or 'eval'.")
-
-        weight_history.append(float(np.linalg.norm(w - w_ref)))
-
-    return w, est_history, weight_history
-
-
-def run_experiment(X, y, w_ref, *, inits=INIT_TYPES, batches=BATCH_TYPES,
-                   optimizer_list=OPTIMIZERS, learning_rate=0.1,
-                   num_epochs=1000, batch_size=32, record="batch",
-                   eval_X=None, eval_y=None, eval_mask=None, seed=0):
-    """Run the full ``init x batch x optimizer`` grid.
-
-    Returns
-    -------
-    df : pandas.DataFrame
-        Final estimation/weight error per configuration, sorted by
-        optimizer, then batch, then init.
+    df : DataFrame
+        One row per combination with ``weight_error`` and ``dist_to_star``.
     histories : dict
-        ``{(optimizer, batch, init): {"estimation": [...], "weight": [...]}}``.
+        ``{(optimizer, batch, init, lr): weight_history}`` if
+        ``keep_histories``, else empty.
     """
-    results = []
-    histories = {}
-
-    for init in inits:
-        for batch in batches:
-            for opt in optimizer_list:
-                w, est_hist, w_hist = train(
-                    X, y, init, batch, opt, w_ref,
-                    learning_rate=learning_rate, num_epochs=num_epochs,
-                    batch_size=batch_size, record=record,
-                    eval_X=eval_X, eval_y=eval_y, eval_mask=eval_mask,
-                    seed=seed)
-                results.append({
-                    "Init Type": init,
-                    "Batch Type": batch,
-                    "Optimizer": opt,
-                    "Estimation Error": est_hist[-1],
-                    "Weight Error": w_hist[-1],
-                })
-                histories[(opt, batch, init)] = {
-                    "estimation": est_hist,
-                    "weight": w_hist,
-                }
-
-    df = pd.DataFrame(results)[[
-        "Optimizer", "Batch Type", "Init Type",
-        "Estimation Error", "Weight Error"]]
-    df["Optimizer"] = pd.Categorical(
-        df["Optimizer"], categories=list(OPTIMIZERS), ordered=True)
-    df = df.sort_values(
-        by=["Optimizer", "Batch Type", "Init Type"]).reset_index(drop=True)
-    return df, histories
+    rows, histories = [], {}
+    for lr in learning_rates:
+        for opt in OPTIMIZERS:
+            for batch in BATCH_TYPES:
+                for init in INIT_TYPES:
+                    w, hist = train(X, y, init, batch, opt, w_ref,
+                                    learning_rate=lr, num_iters=num_iters,
+                                    batch_size=batch_size, seed=seed)
+                    rows.append({
+                        "optimizer": opt, "batch": batch, "init": init,
+                        "lr": lr, "weight_error": hist[-1],
+                        "dist_to_star": float(np.linalg.norm(w - w_star)),
+                    })
+                    if keep_histories:
+                        histories[(opt, batch, init, lr)] = hist
+    return pd.DataFrame(rows), histories

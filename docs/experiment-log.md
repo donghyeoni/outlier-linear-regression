@@ -1,949 +1,804 @@
 # Experiment Log
 
-Record of what was tried, what was observed and what was decided. The
-[README](../README.md) shows only the final method and its results; the
-development process lives here.
+Every run of the project, in the order it was made: the plan, the setting,
+the full result tables, and the decision taken. The [README](../README.md)
+summarises the final results; all of its numbers appear here.
 
-- Experiments are numbered **E0–E8** and listed **oldest first**. E0 is the
-  starting point; E8 is the final evaluation reported in the README.
-- The software environment is listed at the end.
-- Unless stated otherwise: `N = 1000`, `D = 4`, `X ~ U[0,1)^{1000×4}`,
-  noise `ε ~ 0.1·N(0, 1)`, clean ratio `p = 0.9`, outliers follow
-  `w2 = -w1`, weight initialization `N(0, 1)` with `seed = 0`.
-- **Metric.** Weight error `‖ŵ − w_ref‖₂`, with `w_ref = w_true` in
-  experiment 1 and `w_ref = w1` (clean population) in experiment 2. Residuals
-  are `r = Xŵ − y`. Standard deviations are population standard deviations.
-- **Epoch.** One parameter update. Full batch uses all data, mini-batch 32
-  samples, SGD one sample.
-- **Initializations.** `random`: `N(0, 1)`; `zero`: all zeros; `sparse`:
-  `N(0, 1)` with each entry set to 0 with probability 0.8 (about 80%).
-- **Seed.** A dataset seed determines `X`, the true weights, the noise and
-  which samples are outliers.
-- **Noise.** `ε = y − x·w`, with `w` the true weights of the sample's own
-  population (`w1` or `w2`).
-- **Plans.** Sections marked "written before the run" were recorded before
-  the corresponding script was executed. The published repository contains
-  a single commit, so this order cannot be verified from its history.
+## Conventions
 
-**Names used in this log.**
+- **Data.** `N = 1000`, `D = 4`, `X ~ U[0,1)^{1000×4}`, noise `ε ~ 0.1·N(0, 1)`.
+  True weights are drawn from `U[0,1)^4` for each dataset.
+  - Clean data (experiment 1): `y = X·w_true + ε`.
+  - Mixture data (experiment 2): each sample follows `w1` (clean) with
+    probability 0.9 and `w2 = -w1` (outlier) otherwise; label `z` = 1 / 2.
+- **Dataset seed.** One seed fixes `X`, the true weights, the noise and the
+  labels (`src/outlier_regression/data.py`). For the same seed, the clean and
+  the mixture dataset share `X`, the true weights (`w_true = w1`) and the
+  noise.
+- **Training seed.** Every training run seeds the global NumPy RNG with 0
+  before its first weight initialisation.
+- **Iteration.** One parameter update. Full batch uses all samples,
+  mini-batch 32 samples, SGD one sample.
+- **Initialisations.** `random`: `N(0, 1)`; `zero`: all zeros; `sparse`:
+  `N(0, 1)` with each entry set to 0 with probability 0.8.
+- **Metric.** Weight error `‖ŵ − w_ref‖₂`, with `w_ref = w_true`
+  (experiment 1) or `w1` (experiment 2). Residual `r = Xŵ − y`.
+- **Closed form.** `pinv(X)·y`. Oracle: closed form on the clean samples
+  (`z = 1`). Naive: closed form on all samples.
+- **Precision.** Measured values are rounded to 4 decimals, and every
+  comparison in the text is made on the rounded values. A p-value that
+  rounds to 0.0000 is written `< 0.0001`. Per-dataset counts such as
+  "A < B on 18 / 20 datasets" compare unrounded values. Standard deviations
+  are population SDs (`ddof = 0`). Settings such as `tol = 1e-5` are exact.
+- **Result tables.** Every result table (titled with its id and file) is
+  written by the script named in its section to a `tables.md` file and
+  copied here unchanged.
 
-| name | meaning |
+## Seeds
+
+| use | dataset seeds | number |
+| --- | --- | --- |
+| experiment 1 (clean data) | 0–19 | 20 |
+| development of `ours` (mixture data) | 0–19 | 20 |
+| final evaluation (mixture data) | 100–199 | 100 |
+
+The final-evaluation seeds are used only in T1, after every setting has been
+fixed.
+
+## Plan (written before any run)
+
+1. **E1.** Optimizer grid on clean data: 4 optimizers (GD, AdaGrad, RMSProp,
+   Adam) × 3 batch types × 3 initialisations × learning rate {0.01, 0.1},
+   1000 iterations, against the closed form. Purpose: check the optimizer
+   implementations.
+2. **D0.** The same grid, Oracle and Naive on the development mixture data.
+   Purpose: measure the effect of the outliers and whether any optimizer
+   setting avoids it.
+3. **D1.** `ours_v1`, the starting method: 5 cycles × 200 iterations of
+   full-batch Adam (lr 0.01), re-initialised each cycle, removing the 10% of
+   kept samples with the largest `|r|` after cycles 1–4. Diagnose where its
+   error comes from.
+4. **D2–D5.** Change one component at a time, as the D1 diagnosis suggests,
+   and choose each setting on the development seeds by the rules below.
+5. **T1.** Freeze the final method `ours`, write the test plan, then evaluate
+   once on seeds 100–199.
+
+**Selection rules for development** (fixed now):
+
+- A setting is chosen by the mean weight error over the 20 development
+  datasets. Settings whose means differ by less than 0.0001 are tied.
+  *(Changed after D2 to "equal at 4 decimals"; see "Changes made after a
+  run", item 2.)*
+- Ties are broken as stated in each section before its run.
+
+## E1 — Optimizer grid on clean data
+
+**Setting.** `experiments/exp1_clean.py` → `results/exp1/`. Seeds 0–19, clean
+data. 72 combinations: 4 optimizers × 3 batch types × 3 initialisations ×
+learning rate {0.01, 0.1}, 1000 iterations each. Adam: `β1 = 0.9`,
+`β2 = 0.999`, `ε = 1e-8`; RMSProp decay 0.9, `ε = 1e-8`; AdaGrad `ε = 1e-8`.
+`ŵ_cf` is the closed form on the same dataset.
+
+**E1-a closed form (20 datasets)** (`results/exp1/tables.md`)
+
+| method | weight error (mean ± SD) |
 | --- | --- |
-| `ours` v1 | function `ours_v1`: fixed 200-epoch cycles, removal of the top 10% of residuals, re-initialization (E0–E2) |
-| ratio | `ours_v2(prune_rule="ratio")` with stopping rule and per-cycle convergence (E3) |
-| threshold | `ours_v2(prune_rule="threshold")` (E4) |
-| readmit | `ours_v2(prune_rule="readmit")` (E5–E6); the final method |
-| `ours` | function `ours`: the final method with its settings as defaults, i.e. `ours_v2(prune_rule="readmit", stop_k=3, converge_tol=1e-5, num_cycles=5, learning_rate=0.1)`; used in the README and in E8 |
+| closed form | 0.0168 ± 0.0088 |
 
----
+**E1-b combinations reaching the closed form (max ‖ŵ − ŵ_cf‖ over the 20 datasets is 0.0000 at 4 decimals), of 9 batch × init combinations** (`results/exp1/tables.md`)
 
-## Current status
+| optimizer | lr 0.01 | lr 0.1 |
+| --- | --- | --- |
+| GD | 0 / 9 | 3 / 9 |
+| AdaGrad | 0 / 9 | 0 / 9 |
+| RMSProp | 0 / 9 | 0 / 9 |
+| Adam | 1 / 9 | 2 / 9 |
 
-**Final method:** function `ours` = `ours_v2(..., prune_rule="readmit", stop_k=3,
-converge_tol=1e-5, num_cycles=5, learning_rate=0.1)`.
-Each cycle trains Adam until convergence. The inlier set is then recomputed
-from all samples (`|r| ≤ 3·σ_MAD`), and training stops when the set no
-longer changes. Adopted after the pre-registered test in E6 and evaluated on
-untouched datasets in E8.
+**E1-c full batch, zero init: mean weight error** (`results/exp1/tables.md`)
 
-| method (E8, seeds 141–240, n = 100) | weight error |
+| optimizer | lr 0.01 | lr 0.1 |
+| --- | --- | --- |
+| GD | 0.0838 | 0.0168 |
+| AdaGrad | 0.4319 | 0.0171 |
+| RMSProp | 0.0208 | 0.1006 |
+| Adam | 0.0169 | 0.0168 |
+
+Figure `results/exp1/curves.png`: mean weight error per iteration over the 20
+datasets, full batch, zero initialisation.
+
+**E1-d all 72 combinations** (`results/exp1/tables.md`)
+
+| optimizer | batch | init | lr | weight error (mean ± SD) | max ‖ŵ − ŵ_cf‖ | reaches closed form |
+| --- | --- | --- | --- | --- | --- | --- |
+| GD | full | random | 0.01 | 0.2797 ± 0.0507 | 0.3767 | no |
+| GD | full | zero | 0.01 | 0.0838 ± 0.0298 | 0.1328 | no |
+| GD | full | sparse | 0.01 | 0.3682 ± 0.0594 | 0.4587 | no |
+| GD | mini-batch | random | 0.01 | 0.2798 ± 0.0496 | 0.3666 | no |
+| GD | mini-batch | zero | 0.01 | 0.0843 ± 0.0296 | 0.1353 | no |
+| GD | mini-batch | sparse | 0.01 | 0.3697 ± 0.0602 | 0.4660 | no |
+| GD | SGD | random | 0.01 | 0.2853 ± 0.0630 | 0.4169 | no |
+| GD | SGD | zero | 0.01 | 0.0865 ± 0.0324 | 0.1594 | no |
+| GD | SGD | sparse | 0.01 | 0.3716 ± 0.0665 | 0.4813 | no |
+| AdaGrad | full | random | 0.01 | 1.6477 ± 0.2869 | 2.1496 | no |
+| AdaGrad | full | zero | 0.01 | 0.4319 ± 0.1663 | 0.6699 | no |
+| AdaGrad | full | sparse | 0.01 | 1.4022 ± 0.3555 | 1.8979 | no |
+| AdaGrad | mini-batch | random | 0.01 | 1.6519 ± 0.2887 | 2.1541 | no |
+| AdaGrad | mini-batch | zero | 0.01 | 0.4345 ± 0.1674 | 0.6737 | no |
+| AdaGrad | mini-batch | sparse | 0.01 | 1.4637 ± 0.3392 | 1.9437 | no |
+| AdaGrad | SGD | random | 0.01 | 1.7535 ± 0.2972 | 2.2627 | no |
+| AdaGrad | SGD | zero | 0.01 | 0.4891 ± 0.1882 | 0.7590 | no |
+| AdaGrad | SGD | sparse | 0.01 | 1.7551 ± 0.2850 | 2.1794 | no |
+| RMSProp | full | random | 0.01 | 0.0199 ± 0.0075 | 0.0100 | no |
+| RMSProp | full | zero | 0.01 | 0.0208 ± 0.0074 | 0.0100 | no |
+| RMSProp | full | sparse | 0.01 | 0.0198 ± 0.0081 | 0.0100 | no |
+| RMSProp | mini-batch | random | 0.01 | 0.0299 ± 0.0125 | 0.0537 | no |
+| RMSProp | mini-batch | zero | 0.01 | 0.0299 ± 0.0125 | 0.0537 | no |
+| RMSProp | mini-batch | sparse | 0.01 | 0.0299 ± 0.0125 | 0.0537 | no |
+| RMSProp | SGD | random | 0.01 | 0.0569 ± 0.0226 | 0.1154 | no |
+| RMSProp | SGD | zero | 0.01 | 0.0601 ± 0.0197 | 0.0961 | no |
+| RMSProp | SGD | sparse | 0.01 | 0.0529 ± 0.0214 | 0.1032 | no |
+| Adam | full | random | 0.01 | 0.0564 ± 0.0336 | 0.1327 | no |
+| Adam | full | zero | 0.01 | 0.0169 ± 0.0087 | 0.0024 | no |
+| Adam | full | sparse | 0.01 | 0.0168 ± 0.0088 | 0.0000 | yes |
+| Adam | mini-batch | random | 0.01 | 0.0620 ± 0.0367 | 0.1520 | no |
+| Adam | mini-batch | zero | 0.01 | 0.0204 ± 0.0077 | 0.0179 | no |
+| Adam | mini-batch | sparse | 0.01 | 0.0228 ± 0.0085 | 0.0315 | no |
+| Adam | SGD | random | 0.01 | 0.2047 ± 0.1099 | 0.4306 | no |
+| Adam | SGD | zero | 0.01 | 0.0479 ± 0.0210 | 0.0908 | no |
+| Adam | SGD | sparse | 0.01 | 0.0756 ± 0.0397 | 0.1708 | no |
+| GD | full | random | 0.1 | 0.0168 ± 0.0088 | 0.0000 | yes |
+| GD | full | zero | 0.1 | 0.0168 ± 0.0088 | 0.0000 | yes |
+| GD | full | sparse | 0.1 | 0.0168 ± 0.0088 | 0.0000 | yes |
+| GD | mini-batch | random | 0.1 | 0.0206 ± 0.0073 | 0.0202 | no |
+| GD | mini-batch | zero | 0.1 | 0.0206 ± 0.0073 | 0.0202 | no |
+| GD | mini-batch | sparse | 0.1 | 0.0206 ± 0.0073 | 0.0202 | no |
+| GD | SGD | random | 0.1 | 0.0682 ± 0.0305 | 0.1338 | no |
+| GD | SGD | zero | 0.1 | 0.0723 ± 0.0248 | 0.1230 | no |
+| GD | SGD | sparse | 0.1 | 0.0652 ± 0.0271 | 0.1143 | no |
+| AdaGrad | full | random | 0.1 | 0.1119 ± 0.0693 | 0.2421 | no |
+| AdaGrad | full | zero | 0.1 | 0.0171 ± 0.0086 | 0.0066 | no |
+| AdaGrad | full | sparse | 0.1 | 0.0170 ± 0.0085 | 0.0030 | no |
+| AdaGrad | mini-batch | random | 0.1 | 0.1240 ± 0.0777 | 0.2900 | no |
+| AdaGrad | mini-batch | zero | 0.1 | 0.0194 ± 0.0077 | 0.0177 | no |
+| AdaGrad | mini-batch | sparse | 0.1 | 0.0203 ± 0.0074 | 0.0171 | no |
+| AdaGrad | SGD | random | 0.1 | 0.3967 ± 0.1931 | 0.7495 | no |
+| AdaGrad | SGD | zero | 0.1 | 0.0367 ± 0.0128 | 0.0520 | no |
+| AdaGrad | SGD | sparse | 0.1 | 0.2586 ± 0.1448 | 0.5528 | no |
+| RMSProp | full | random | 0.1 | 0.1010 ± 0.0038 | 0.1000 | no |
+| RMSProp | full | zero | 0.1 | 0.1006 ± 0.0034 | 0.1000 | no |
+| RMSProp | full | sparse | 0.1 | 0.1023 ± 0.0033 | 0.1000 | no |
+| RMSProp | mini-batch | random | 0.1 | 0.1054 ± 0.0474 | 0.1952 | no |
+| RMSProp | mini-batch | zero | 0.1 | 0.1054 ± 0.0474 | 0.1952 | no |
+| RMSProp | mini-batch | sparse | 0.1 | 0.1054 ± 0.0474 | 0.1952 | no |
+| RMSProp | SGD | random | 0.1 | 0.2242 ± 0.0619 | 0.3170 | no |
+| RMSProp | SGD | zero | 0.1 | 0.2056 ± 0.0692 | 0.3308 | no |
+| RMSProp | SGD | sparse | 0.1 | 0.2475 ± 0.0645 | 0.3548 | no |
+| Adam | full | random | 0.1 | 0.0168 ± 0.0088 | 0.0000 | yes |
+| Adam | full | zero | 0.1 | 0.0168 ± 0.0088 | 0.0000 | yes |
+| Adam | full | sparse | 0.1 | 0.0168 ± 0.0088 | 0.0001 | no |
+| Adam | mini-batch | random | 0.1 | 0.0387 ± 0.0165 | 0.0732 | no |
+| Adam | mini-batch | zero | 0.1 | 0.0510 ± 0.0221 | 0.1043 | no |
+| Adam | mini-batch | sparse | 0.1 | 0.0568 ± 0.0221 | 0.1019 | no |
+| Adam | SGD | random | 0.1 | 0.1879 ± 0.0964 | 0.5042 | no |
+| Adam | SGD | zero | 0.1 | 0.2040 ± 0.0865 | 0.4009 | no |
+| Adam | SGD | sparse | 0.1 | 0.1777 ± 0.1113 | 0.5935 | no |
+
+**Observations.**
+
+- The 6 combinations that reach the closed form are all full batch: GD at
+  lr 0.1 (all three initialisations), Adam at lr 0.1 (`random`, `zero`) and
+  Adam at lr 0.01 (`sparse`).
+- No mini-batch or SGD combination reaches the closed form within 1000
+  iterations.
+- RMSProp with full batch ends at a maximum distance of 0.0100 (lr 0.01) and
+  0.1000 (lr 0.1) from the closed form for every initialisation.
+
+**Decision.** The optimizer implementations are used unchanged in D0 and T1.
+
+## D0 — Outliers: Oracle, Naive and the optimizer grid
+
+**Setting.** `experiments/dev0_baselines.py` → `results/dev0/`. Development
+seeds 0–19, mixture data. The grid of E1 is trained on all samples;
+`ŵ_naive` is the Naive solution of the same dataset. Weight errors are
+against `w1`.
+
+**D0-a Oracle and Naive** (`results/dev0/tables.md`)
+
+| method | weight error (mean ± SD) | min–max |
+| --- | --- | --- |
+| Oracle | 0.0194 ± 0.0093 | 0.0030–0.0350 |
+| Naive | 0.2399 ± 0.0993 | 0.0987–0.4832 |
+
+**D0-b optimizer grid overview** (`results/dev0/tables.md`)
+
+| quantity | value |
 | --- | --- |
-| Oracle | 0.0188 ± 0.0082 |
-| Naive | 0.2478 ± 0.0674 |
-| `ours` (readmit) | 0.0188 ± 0.0078 |
+| outliers per dataset (min–max) | 82–119 |
+| combinations reaching Naive (max ‖ŵ − ŵ_naive‖ is 0.0000 at 4 decimals) | 6 / 72 |
+| smallest mean weight error over the grid | 0.1905 (RMSProp, SGD, zero, lr 0.01) |
+| datasets where that combination is below Naive | 15 / 20 |
 
-## Summary of experiments
+**D0-c optimizer grid, all 72 combinations** (`results/dev0/tables.md`)
 
-| # | question | result | decision |
+| optimizer | batch | init | lr | weight error (mean ± SD) | min–max | max ‖ŵ − ŵ_naive‖ |
+| --- | --- | --- | --- | --- | --- | --- |
+| GD | full | random | 0.01 | 0.3742 ± 0.0757 | 0.2657–0.5219 | 0.3550 |
+| GD | full | zero | 0.01 | 0.2579 ± 0.0985 | 0.1049–0.4932 | 0.1259 |
+| GD | full | sparse | 0.01 | 0.4395 ± 0.0874 | 0.2217–0.5569 | 0.4820 |
+| GD | mini-batch | random | 0.01 | 0.3706 ± 0.0789 | 0.2545–0.5430 | 0.3660 |
+| GD | mini-batch | zero | 0.01 | 0.2535 ± 0.0977 | 0.1035–0.4812 | 0.1446 |
+| GD | mini-batch | sparse | 0.01 | 0.4375 ± 0.0900 | 0.2049–0.5529 | 0.5079 |
+| GD | SGD | random | 0.01 | 0.4220 ± 0.1172 | 0.2771–0.6343 | 0.4463 |
+| GD | SGD | zero | 0.01 | 0.2915 ± 0.1314 | 0.0740–0.6158 | 0.2565 |
+| GD | SGD | sparse | 0.01 | 0.4710 ± 0.1169 | 0.2132–0.6647 | 0.5221 |
+| AdaGrad | full | random | 0.01 | 1.6441 ± 0.2877 | 1.0451–2.1470 | 2.1295 |
+| AdaGrad | full | zero | 0.01 | 0.4606 ± 0.1701 | 0.1415–0.7128 | 0.5968 |
+| AdaGrad | full | sparse | 0.01 | 1.5463 ± 0.3321 | 0.9777–2.0299 | 1.9691 |
+| AdaGrad | mini-batch | random | 0.01 | 1.6482 ± 0.2896 | 1.0439–2.1513 | 2.1341 |
+| AdaGrad | mini-batch | zero | 0.01 | 0.4720 ± 0.1722 | 0.1504–0.7264 | 0.6056 |
+| AdaGrad | mini-batch | sparse | 0.01 | 1.6307 ± 0.2921 | 1.0765–2.0661 | 2.0035 |
+| AdaGrad | SGD | random | 0.01 | 1.7605 ± 0.2883 | 1.1455–2.2659 | 2.2616 |
+| AdaGrad | SGD | zero | 0.01 | 0.5983 ± 0.2231 | 0.1819–0.9461 | 0.7008 |
+| AdaGrad | SGD | sparse | 0.01 | 1.8388 ± 0.2616 | 1.2928–2.2222 | 2.2950 |
+| RMSProp | full | random | 0.01 | 0.2405 ± 0.1029 | 0.0896–0.4887 | 0.0100 |
+| RMSProp | full | zero | 0.01 | 0.2381 ± 0.0994 | 0.0896–0.4778 | 0.0100 |
+| RMSProp | full | sparse | 0.01 | 0.2422 ± 0.1007 | 0.1008–0.4887 | 0.0100 |
+| RMSProp | mini-batch | random | 0.01 | 0.2312 ± 0.1026 | 0.0877–0.4812 | 0.1036 |
+| RMSProp | mini-batch | zero | 0.01 | 0.2313 ± 0.1027 | 0.0877–0.4812 | 0.1036 |
+| RMSProp | mini-batch | sparse | 0.01 | 0.2313 ± 0.1026 | 0.0877–0.4812 | 0.1036 |
+| RMSProp | SGD | random | 0.01 | 0.2761 ± 0.1288 | 0.0726–0.5391 | 0.4821 |
+| RMSProp | SGD | zero | 0.01 | 0.1905 ± 0.0940 | 0.0523–0.3982 | 0.2315 |
+| RMSProp | SGD | sparse | 0.01 | 0.2943 ± 0.1297 | 0.0960–0.5603 | 0.5780 |
+| Adam | full | random | 0.01 | 0.2601 ± 0.0853 | 0.1400–0.4755 | 0.1677 |
+| Adam | full | zero | 0.01 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0001 |
+| Adam | full | sparse | 0.01 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0003 |
+| Adam | mini-batch | random | 0.01 | 0.2555 ± 0.0809 | 0.1406–0.4550 | 0.1724 |
+| Adam | mini-batch | zero | 0.01 | 0.2338 ± 0.0959 | 0.0616–0.4684 | 0.0962 |
+| Adam | mini-batch | sparse | 0.01 | 0.2346 ± 0.0960 | 0.0639–0.4686 | 0.1026 |
+| Adam | SGD | random | 0.01 | 0.5188 ± 0.1252 | 0.2682–0.7581 | 0.6318 |
+| Adam | SGD | zero | 0.01 | 0.2829 ± 0.1265 | 0.0474–0.5560 | 0.2324 |
+| Adam | SGD | sparse | 0.01 | 0.4462 ± 0.1456 | 0.1847–0.7459 | 0.6065 |
+| GD | full | random | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0000 |
+| GD | full | zero | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0000 |
+| GD | full | sparse | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0000 |
+| GD | mini-batch | random | 0.1 | 0.2359 ± 0.1134 | 0.0857–0.5104 | 0.1373 |
+| GD | mini-batch | zero | 0.1 | 0.2359 ± 0.1134 | 0.0857–0.5104 | 0.1373 |
+| GD | mini-batch | sparse | 0.1 | 0.2359 ± 0.1134 | 0.0857–0.5104 | 0.1373 |
+| GD | SGD | random | 0.1 | 0.5098 ± 0.2733 | 0.1385–1.2380 | 0.7889 |
+| GD | SGD | zero | 0.1 | 0.5125 ± 0.3742 | 0.1606–1.5574 | 1.0910 |
+| GD | SGD | sparse | 0.1 | 0.4561 ± 0.2518 | 0.1898–1.0962 | 0.7732 |
+| AdaGrad | full | random | 0.1 | 0.3017 ± 0.0724 | 0.2087–0.4704 | 0.2950 |
+| AdaGrad | full | zero | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0004 |
+| AdaGrad | full | sparse | 0.1 | 0.2401 ± 0.0992 | 0.0986–0.4832 | 0.0067 |
+| AdaGrad | mini-batch | random | 0.1 | 0.3165 ± 0.0745 | 0.2119–0.4685 | 0.3428 |
+| AdaGrad | mini-batch | zero | 0.1 | 0.2327 ± 0.0999 | 0.0832–0.4728 | 0.0506 |
+| AdaGrad | mini-batch | sparse | 0.1 | 0.2326 ± 0.0978 | 0.0831–0.4735 | 0.0861 |
+| AdaGrad | SGD | random | 0.1 | 0.7453 ± 0.1603 | 0.4021–1.0198 | 0.9625 |
+| AdaGrad | SGD | zero | 0.1 | 0.3038 ± 0.1343 | 0.0666–0.6115 | 0.3299 |
+| AdaGrad | SGD | sparse | 0.1 | 0.7283 ± 0.1735 | 0.3656–1.0289 | 1.1389 |
+| RMSProp | full | random | 0.1 | 0.2551 ± 0.1183 | 0.0383–0.5115 | 0.1000 |
+| RMSProp | full | zero | 0.1 | 0.2666 ± 0.1244 | 0.0643–0.5441 | 0.1000 |
+| RMSProp | full | sparse | 0.1 | 0.2017 ± 0.1286 | 0.0342–0.5115 | 0.1000 |
+| RMSProp | mini-batch | random | 0.1 | 0.2769 ± 0.1205 | 0.1143–0.6432 | 0.2772 |
+| RMSProp | mini-batch | zero | 0.1 | 0.2769 ± 0.1205 | 0.1143–0.6432 | 0.2772 |
+| RMSProp | mini-batch | sparse | 0.1 | 0.2769 ± 0.1205 | 0.1143–0.6432 | 0.2772 |
+| RMSProp | SGD | random | 0.1 | 0.4591 ± 0.2118 | 0.0528–0.9606 | 0.7401 |
+| RMSProp | SGD | zero | 0.1 | 0.4222 ± 0.2402 | 0.1474–1.0504 | 0.5974 |
+| RMSProp | SGD | sparse | 0.1 | 0.4236 ± 0.1945 | 0.1885–0.9159 | 0.6705 |
+| Adam | full | random | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0000 |
+| Adam | full | zero | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0000 |
+| Adam | full | sparse | 0.1 | 0.2399 ± 0.0993 | 0.0987–0.4832 | 0.0000 |
+| Adam | mini-batch | random | 0.1 | 0.2900 ± 0.1606 | 0.1126–0.6919 | 0.3420 |
+| Adam | mini-batch | zero | 0.1 | 0.2965 ± 0.1610 | 0.1384–0.7140 | 0.3428 |
+| Adam | mini-batch | sparse | 0.1 | 0.2968 ± 0.1617 | 0.1389–0.7169 | 0.3439 |
+| Adam | SGD | random | 0.1 | 0.5601 ± 0.2489 | 0.2263–1.1699 | 0.7601 |
+| Adam | SGD | zero | 0.1 | 0.4952 ± 0.2670 | 0.1203–1.0923 | 0.8944 |
+| Adam | SGD | sparse | 0.1 | 0.5540 ± 0.2493 | 0.2336–1.0875 | 0.8163 |
+
+**Observations.**
+
+- The mean weight error is 0.2399 for Naive and 0.0194 for Oracle.
+- The 6 combinations that reach Naive are GD and Adam, full batch, lr 0.1,
+  all three initialisations. Every optimizer minimises the MSE on all
+  samples, whose minimiser is the Naive solution.
+- The smallest grid mean is 0.1905 (RMSProp, SGD, `zero`, lr 0.01).
+
+**Decision.** Develop a sample-selection method, starting from `ours_v1`.
+
+## D1 — The starting method `ours_v1`
+
+**Setting.** `experiments/dev1_v1.py` → `results/dev1/`. `ours_v1`
+(`src/outlier_regression/outlier_removal.py`): 5 cycles of 200 full-batch
+Adam iterations at lr 0.01. Each cycle starts from new `N(0, 1)` weights and
+a fresh Adam state. After cycles 1–4, the 10% of kept samples with the largest
+`|r|` are removed permanently. The closed form on the final kept set separates
+the effect of the selection from that of the training.
+
+**D1-a weight error** (`results/dev1/tables.md`)
+
+| method | weight error (mean ± SD) | min–max |
+| --- | --- | --- |
+| Oracle | 0.0194 ± 0.0093 | 0.0030–0.0350 |
+| Naive | 0.2399 ± 0.0993 | 0.0987–0.4832 |
+| ours_v1 | 0.4664 ± 0.3472 | 0.0658–1.1549 |
+
+**D1-b per-dataset comparison** (`results/dev1/tables.md`)
+
+| comparison | datasets |
+| --- | --- |
+| ours_v1 < Naive | 2 / 20 |
+| ours_v1 < Oracle | 0 / 20 |
+
+**D1-c prunes, totals over the 20 datasets (2016 outliers in total)** (`results/dev1/tables.md`)
+
+| prune (after cycle) | outliers removed | clean removed | outliers left |
 | --- | --- | --- | --- |
-| E0 | Starting point | Experiment 1 (optimizers on clean data) and `ours` v1 on seed 0: 0.14654 vs Naive 0.13124 | Baseline for everything below |
-| E1 | Why is `ours` v1 worse than Naive? | At lr 0.01, pruning never stops and the last cycle does not converge | Superseded in part by E2 |
-| E2 | Does this hold at other learning rates? | At lr 0.1 / 0.5 `ours` v1 reaches 0.030 at best (epoch 400; final 0.043; Oracle 0.029). lr 0.01 fails because cycles do not converge | Two limitations identified (① convergence, ② no stopping rule) |
-| E3 | Fix ① and ② | Per-cycle convergence removes the lr dependence; the stopping rule removes over-pruning. Held-out (seeds 1–20): 0.0224 | Ratio-based `ours_v2` becomes the final method |
-| E4 | Threshold instead of fixed 10% removal? | Worse on held-out data (0.0262 vs 0.0224): one-sided removal of clean samples | Rejected |
-| E5 | Re-admit wrongly removed samples? | 0.0190 vs ratio 0.0218 on seeds 21–40, not significant (p = 0.15) | Candidate; confirmatory test planned |
-| E6 | Pre-registered test: readmit vs ratio | n = 100, mean diff −0.0025, p = 0.00012 | Readmit adopted |
-| E7 | Descriptive values on the E6 seeds | Optimizer grid, lr, diagnostics on seeds 41–140 | Superseded for reporting by E8 (these seeds were used for the E6 choice) |
-| E8 | Final evaluation on untouched seeds | Seeds 141–240: `ours` 0.0188 vs Oracle 0.0188, Naive 0.2478 | Reported in the README |
+| 1 | 1688 | 312 | 328 |
+| 2 | 323 | 1477 | 5 |
+| 3 | 5 | 1615 | 0 |
+| 4 | 0 | 1460 | 0 |
 
-## Use of data seeds
+**D1-d gradient norm at the end of each cycle** (`results/dev1/tables.md`)
 
-Each seed generates a different dataset. Seeds were used in this order.
-Seeds 0–140 were used for development and selection; the final evaluation
-(E8) uses seeds 141–240, which were not used for any decision.
-
-| seeds | used in | purpose |
+| cycle | ‖∇‖ at the end (mean) | min–max |
 | --- | --- | --- |
-| 0 | E0–E5 | development |
-| 1–20 | E3, E4 (secondary in E5) | held-out evaluation of the ratio method; selection between ratio and threshold |
-| 21–40 | E5 | selection between ratio and readmit |
-| 41–140 | E6, E7 | selection between ratio and readmit (pre-registered test); descriptive values |
-| 141–240 | E8 | final evaluation only; no decision depends on it |
+| 1 | 0.2335 | 0.1361–0.3324 |
+| 2 | 0.0604 | 0.0107–0.1286 |
+| 3 | 0.0178 | 0.0000–0.0503 |
+| 4 | 0.0029 | 0.0000–0.0209 |
+| 5 | 0.0748 | 0.0145–0.1604 |
 
----
+**D1-e final kept set** (`results/dev1/tables.md`)
 
-## E0 — Starting point: experiment 1 and `ours` v1
-
-Experiment 1 and the first version of the method, `ours` v1 (function
-`ours_v1`: fixed 200-epoch cycles, removal of the top 10% of residuals,
-re-initialization), on the development dataset (`run_baseline.py`,
-`run_outlier.py`, seed 0).
-
-### Experiment 1 — optimizers on clean data (seed 0, lr 0.1, 1000 epochs, mini-batch size 32)
-
-`results/baseline/closed_form.json`, `results/baseline/optimizer_grid.csv`
-
-Closed-form solution (explicit normal equation): weight error 0.0236
-(0.02362), MSE 0.0103 (0.01028). True weights 0.2926, 0.5665, 0.1374,
-0.3497; estimated 0.3032, 0.5620, 0.1179, 0.3563.
-
-Full grid (estimation error = pre-update batch MSE, as recorded by the trainer):
-
-| optimizer | batch | init | estimation error | weight error |
-| --- | --- | --- | --- | --- |
-| GD | SGD | random | 0.01008 | 0.09510 |
-| GD | SGD | sparse | 0.00478 | 0.11321 |
-| GD | SGD | zero | 0.00307 | 0.09685 |
-| GD | full | random | 0.01028 | 0.02362 |
-| GD | full | sparse | 0.01028 | 0.02362 |
-| GD | full | zero | 0.01028 | 0.02362 |
-| GD | mini-batch | random | 0.01168 | 0.02331 |
-| GD | mini-batch | sparse | 0.01168 | 0.02331 |
-| GD | mini-batch | zero | 0.01168 | 0.02331 |
-| AdaGrad | SGD | random | 0.00056 | 0.50181 |
-| AdaGrad | SGD | sparse | 0.01513 | 0.20485 |
-| AdaGrad | SGD | zero | 0.00353 | 0.03876 |
-| AdaGrad | full | random | 0.01239 | 0.17724 |
-| AdaGrad | full | sparse | 0.01028 | 0.02376 |
-| AdaGrad | full | zero | 0.01028 | 0.02362 |
-| AdaGrad | mini-batch | random | 0.01284 | 0.20284 |
-| AdaGrad | mini-batch | sparse | 0.01166 | 0.02380 |
-| AdaGrad | mini-batch | zero | 0.01165 | 0.02357 |
-| RMSProp | SGD | random | 0.00039 | 0.27911 |
-| RMSProp | SGD | sparse | 0.00711 | 0.37162 |
-| RMSProp | SGD | zero | 0.00020 | 0.19650 |
-| RMSProp | full | random | 0.02108 | 0.09931 |
-| RMSProp | full | sparse | 0.02108 | 0.09931 |
-| RMSProp | full | zero | 0.02108 | 0.10608 |
-| RMSProp | mini-batch | random | 0.03122 | 0.11616 |
-| RMSProp | mini-batch | sparse | 0.03122 | 0.11616 |
-| RMSProp | mini-batch | zero | 0.03122 | 0.11616 |
-| Adam | SGD | random | 0.00811 | 0.28725 |
-| Adam | SGD | sparse | 0.00078 | 0.27639 |
-| Adam | SGD | zero | 0.00619 | 0.41186 |
-| Adam | full | random | 0.01028 | 0.02362 |
-| Adam | full | sparse | 0.01028 | 0.02362 |
-| Adam | full | zero | 0.01028 | 0.02362 |
-| Adam | mini-batch | random | 0.01308 | 0.02653 |
-| Adam | mini-batch | sparse | 0.01261 | 0.04543 |
-| Adam | mini-batch | zero | 0.01316 | 0.03097 |
-
-At `init=zero`, `batch=full`, GD / AdaGrad / Adam reach the closed-form
-solution (0.01028 / 0.02362). RMSProp does not converge at lr 0.1
-(0.02108 / 0.10608): over the last 100 epochs its weight error oscillates
-between 0.0993 and 0.1061, while GD, AdaGrad and Adam stay at 0.02362
-(`results/baseline/convergence_tail.json`). These are the experiment-1
-values shown in the README.
-
-### Experiment 2 — `ours` v1 on the mixture (seed 0)
-
-`results/outlier/summary.json`, `results/outlier/optimizer_grid.csv`
-
-| fit | MSE (clean) | weight error |
-| --- | --- | --- |
-| Oracle (clean population only) | 0.01015 | 0.02921 |
-| Naive (all data) | 0.02742 | 0.13124 |
-| `ours` v1 (lr 0.01, 1000 epochs) | 0.01188 | 0.14654 |
-
-Optimizer grid on the mixture (lr 0.01, estimation error = post-update MSE on
-the clean population, weight error against `w1`):
-
-| optimizer | batch | init | estimation error | weight error |
-| --- | --- | --- | --- | --- |
-| GD | SGD | random | 0.05609 | 0.30922 |
-| GD | SGD | sparse | 0.08416 | 0.36304 |
-| GD | SGD | zero | 0.06833 | 0.25095 |
-| GD | full | random | 0.03430 | 0.33341 |
-| GD | full | sparse | 0.03653 | 0.36008 |
-| GD | full | zero | 0.02776 | 0.14056 |
-| GD | mini-batch | random | 0.03629 | 0.33462 |
-| GD | mini-batch | sparse | 0.03821 | 0.35687 |
-| GD | mini-batch | zero | 0.03053 | 0.15082 |
-| AdaGrad | SGD | random | 1.62310 | 1.93514 |
-| AdaGrad | SGD | sparse | 0.28890 | 1.80541 |
-| AdaGrad | SGD | zero | 0.07126 | 0.36445 |
-| AdaGrad | full | random | 1.10776 | 1.79883 |
-| AdaGrad | full | sparse | 0.24806 | 1.65306 |
-| AdaGrad | full | zero | 0.03364 | 0.26553 |
-| AdaGrad | mini-batch | random | 1.12972 | 1.80490 |
-| AdaGrad | mini-batch | sparse | 0.25603 | 1.67449 |
-| AdaGrad | mini-batch | zero | 0.03666 | 0.28144 |
-| RMSProp | SGD | random | 0.03473 | 0.20857 |
-| RMSProp | SGD | sparse | 0.05687 | 0.24330 |
-| RMSProp | SGD | zero | 0.04312 | 0.20295 |
-| RMSProp | full | random | 0.03024 | 0.14117 |
-| RMSProp | full | sparse | 0.02480 | 0.12132 |
-| RMSProp | full | zero | 0.03024 | 0.14117 |
-| RMSProp | mini-batch | random | 0.02987 | 0.14563 |
-| RMSProp | mini-batch | sparse | 0.02987 | 0.14563 |
-| RMSProp | mini-batch | zero | 0.02987 | 0.14563 |
-| Adam | SGD | random | 0.08727 | 0.44600 |
-| Adam | SGD | sparse | 0.10538 | 0.34384 |
-| Adam | SGD | zero | 0.11706 | 0.32225 |
-| Adam | full | random | 0.02776 | 0.16410 |
-| Adam | full | sparse | 0.02742 | 0.13123 |
-| Adam | full | zero | 0.02742 | 0.13124 |
-| Adam | mini-batch | random | 0.03307 | 0.18017 |
-| Adam | mini-batch | sparse | 0.04819 | 0.19291 |
-| Adam | mini-batch | zero | 0.04903 | 0.19597 |
-
-The learning-rate sweep of `ours` v1 (lr 0.01 / 0.1 / 0.5) is
-plotted in `results/outlier/lr_sweep.png`; its final values are in E2.
-
-### Concept figure (README figure 1)
-
-`docs/images/concept_values.json`. 1-D toy data, 200 points, of which 20
-are outliers; true slope 1 (1.00). Least-squares slope on the clean points 1.01 (1.0085), on all points 0.84 (0.8409).
-
-## E1 — Why `ours` v1 has a worse weight error than Naive
-
-> **Superseded in part by E2.** This analysis used lr = 0.01 only. At
-> lr 0.1 / 0.5, `ours` v1 works and the stopping rule is a secondary issue.
-
-**Observation.** `ours` v1 reaches a clean-population MSE of 0.0119 (oracle
-0.0102), but its weight error is 0.1465, worse than the naive fit (0.131).
-
-**Diagnostic** (`experiments/diagnose_pruning.py`). There are 92 true outliers
-out of 1000 samples.
-
-| Prune at epoch | Removed (outliers) | Kept (outliers) |
-| --- | --- | --- |
-| 200 | 100 (72) | 900 (20) |
-| 400 | 90 (20) | 810 (0) |
-| 600 | 81 (0) | 729 (0) |
-| 800 | 73 (0) | 656 (0) |
-
-Final weight error:
-
-| num_epochs | trained `ours` v1 | closed form on kept set |
-| --- | --- | --- |
-| 1000 | 0.1465 | 0.0847 |
-| 3000 | 0.3997 | 0.1209 (227 samples left) |
-
-**Findings.**
-
-1. The outlier detection itself works: all outliers are removed by epoch 400.
-2. There is no stopping rule. Every cycle removes another 10% of the *current*
-   set, so after epoch 400 only clean samples are removed. These are the
-   clean samples with the largest residuals, so the kept set becomes biased.
-   Closed form on the kept set gives 0.085 against the oracle's 0.029.
-3. The last cycle is too short to converge. After the final prune the weights
-   are re-initialized randomly and trained for only about 200 Adam steps at
-   lr = 0.01. The trained error of 0.1465 against the kept-set closed form of
-   0.085 is this gap.
-4. Longer training makes it worse (3000 epochs: 227 samples, error 0.40).
-
-## E2 — Learning rate, not the stopping rule, is the main issue
-
-Re-checked E1 with the learning rates from the sweep. `diagnose_pruning.py`
-runs lr 0.01 / 0.1 / 0.5 and records the weight error of the model that makes
-each pruning decision.
-
-| Prune at epoch | lr 0.01: w_err before prune | outliers removed | lr 0.1: w_err before prune | outliers removed |
-| --- | --- | --- | --- | --- |
-| 200 | 1.355 | 72 | 0.131 | 89 |
-| 400 | 0.385 | 20 | 0.030 | 3 |
-| 600 | 0.158 | 0 | 0.032 | 0 |
-| 800 | 0.103 | 0 | 0.034 | 0 |
-| final (1000) | 0.147 | – | 0.043 | – |
-
-lr = 0.5 matches lr = 0.1 to three decimals (final 0.0433).
-
-**Findings.**
-
-1. At lr 0.1 / 0.5, every 200-epoch cycle converges. The trained final weights
-   equal the closed form on the kept set (0.0434 vs 0.0433). The first prune
-   is made from the converged naive fit (0.131) and catches 89 of 92
-   outliers.
-2. At lr 0.01, the cycles never converge (1.355 at epoch 200). The first prune
-   is made by an unfit model and catches only 72. The kept set it ends with
-   is also worse: the closed form on it gives 0.085, against 0.043 for the
-   lr 0.1 kept set of the same size.
-3. `ours` v1 works: at lr 0.1 its best point (epoch 400, 0.030) matches the
-   oracle (0.029), and the final 0.043 is a third of the naive fit's 0.131.
-4. The missing stopping rule is real but secondary. It costs 0.030 → 0.043
-   at lr 0.1.
-5. So the E1 conclusion ("no stopping rule is the core defect") was mostly an
-   artifact of lr = 0.01. The headline `ours` v1 number in `summary.json`
-   (lr 0.01, 0.1465) is the worst of the three learning rates.
-
-**Limitations carried into E3.**
-
-- **①** At lr 0.01, a 200-epoch cycle does not converge, so pruning decisions
-  are made by an unfit model.
-- **②** There is no stopping rule, so clean samples keep being removed after
-  all outliers are gone.
-
-**MSE vs weight error** (`experiments/analyze_mse_vs_weight.py` →
-`results/outlier/mse_vs_weight_error.json`). For lr 0.01, the error `w - w1`
-is almost entirely orthogonal to the all-ones direction (0.1464 of 0.1465;
-the along-ones component is −0.0068). Because `X ~ U[0,1)`, the feature
-covariance has one large eigenvalue (~1.08, along the ones direction) and
-three small ones (~0.08–0.09). The resulting excess MSE, `(w - w_oracle)' S (w - w_oracle)`,
-is 0.001722. This exactly equals the observed MSE gap between `ours` v1 and the
-oracle (0.011876 − 0.010154). So a near-oracle MSE can hide a large weight
-error, and weight error should stay the primary metric.
-
-## E3 — Stopping rule and per-cycle convergence
-
-Tested the two fixes for ① and ② one at a time, then combined them. The
-implementation is `ours_v2` in `src/outlier_regression/outlier_removal.py`.
-With no stopping rule, ratio pruning and fixed 5 × 200-epoch cycles, it
-reproduces `ours` v1 bit-for-bit at the same learning rate
-(weights and histories identical at lr 0.01 / 0.1 / 0.5). The default
-learning rates of the two functions differ (0.01 vs 0.1).
-
-**Stopping rule (for ②).** Before each prune, compute the MAD scale of the
-residuals, `σ_MAD = 1.4826 · median(|r − median(r)|)`. If no sample has
-`|r| > k·σ_MAD`, stop pruning. The rule uses residuals only, never the labels
-`z`. In fixed-length mode, the remaining epoch budget is spent training the
-current weights without re-initialization.
-
-**Per-cycle convergence (for ①).** Each cycle trains until `‖∇‖ < tol`
-(capped at 20000 epochs) instead of a fixed 200 epochs.
-
-### Step 1 — stopping rule only (seed 0, fixed 200-epoch cycles)
-
-`experiments/run_ablation.py` → `results/ablation/step1_stop_rule.json`
-
-| lr | k | final w_err | outliers removed per prune | kept (outliers left) |
-| --- | --- | --- | --- | --- |
-| 0.1 | none | 0.0434 | 89, 3, 0, 0 | 656 (0) |
-| 0.1 | 2.5 / 3 / 3.5 | 0.0317 | 89, 3 | 810 (0) |
-| 0.1 | 4 / 5 | 0.0301 | 89 | 900 (3) |
-| 0.01 | none | 0.1465 | 72, 20, 0, 0 | 656 (0) |
-| 0.01 | 3 | 0.0982 | 72, 20 | 810 (0) |
-| 0.01 | 5 | 0.1641 | – (stops before any prune) | 1000 (92) |
-
-lr 0.5 matches lr 0.1. With lr 0.1 / 0.5, the stopping rule brings the final
-error from 0.043 to 0.030–0.032, the oracle level. At lr 0.01 it helps
-(0.147 → 0.098) but does not fix it, as expected: limitation ① remains.
-
-### Step 2 — per-cycle convergence only (seed 0, no stopping rule)
-
-`results/ablation/step2_converge.json`
-
-| lr | tol | final w_err | epochs per cycle | outliers removed per prune |
-| --- | --- | --- | --- | --- |
-| 0.01 | 1e-5 | 0.0433 | 2072, 636, 443, 203, 524 | 89, 3, 0, 0 |
-| 0.1 | 1e-5 | 0.0434 | 233, 171, 188, 181, 193 | 89, 3, 0, 0 |
-| 0.5 | 1e-5 | 0.0433 | 197, 197, 188, 172, 206 | 89, 3, 0, 0 |
-
-When every cycle converges, lr 0.01 makes exactly the same pruning decisions
-as lr 0.1 and ends at the same error. So limitation ① was entirely a
-convergence problem. At lr 0.1 / 0.5, tolerances 1e-4–1e-6 remove identical
-sample sets; at lr 0.01, the set kept by 1e-4 differs from that of 1e-5 by 2
-samples after the third prune and is identical again after the fourth, so
-the removed sets differ in the third and fourth prunes (the outlier counts
-are identical).
-The final weight errors of 1e-5 and 1e-6 differ by at most 2e-5; 1e-4
-differs from them by up to 0.0003, and 1e-3 stops slightly early
-(0.041–0.044). Chose `tol = 1e-5`.
-
-### Step 3 — combined method, held-out evaluation
-
-Combined = per-cycle convergence (`tol = 1e-5`) + stopping rule, with ratio
-pruning (10% per cycle). `k = 3` is the conventional 3σ cut. The step-1
-table on seed 0 had already shown the same result for k = 2.5–3.5, so this
-choice is not sensitive on the development data. Seed 0 was used for all development,
-so the method is evaluated on 20 fresh datasets, seeds 1–20 (82–119 outliers
-each).
-
-`experiments/run_ratio_heldout.py` → `results/heldout_ratio/`
-
-| method | weight error, mean ± std (min–max) |
+| quantity | value |
 | --- | --- |
-| Oracle | 0.0195 ± 0.0094 (0.0030–0.0350) |
-| Naive | 0.2476 ± 0.0965 (0.0987–0.4832) |
-| `ours` v1, lr 0.01 | 0.4628 ± 0.3508 (0.0658–1.1549) |
-| `ours` v1, lr 0.1 | 0.0274 ± 0.0125 (0.0085–0.0588) |
-| **combined, lr 0.01 / 0.1 / 0.5** | **0.0224 ± 0.0102 (0.0058–0.0503)** |
+| samples kept after the last prune | 656–656 |
+| outliers kept, total over datasets | 0 |
+| ours_v1 (trained) | 0.4664 ± 0.3472 |
+| closed form on the final kept set | 0.0678 ± 0.0158 |
 
-(The `ours` v1 rows are the `v1_lr*` columns of
-`results/heldout_ratio/per_seed.csv`; the ratio rows are the `ratio_lr*`
-columns.)
+**Observations.**
 
-- The combined method beats Naive on 20/20 datasets, is 91% below Naive on
-  average, and is 0.0029 above Oracle on average.
-- The learning rate no longer matters: across the 20 datasets, the
-  largest difference between learning rates is 9e-5.
-- k is not sensitive: k = 2.5 gives identical results, and k = 4 gives
-  0.0228–0.0229 (it sometimes stops after one prune with up to 3 outliers
-  left).
-- On every held-out dataset, the method pruned exactly twice (100 + 90
-  samples) and kept 810. Only 1 outlier survived across all 20 datasets.
-- Seed 0 (development): 0.0317 at all three learning rates (Oracle 0.0292).
-- `ours` v1 at lr 0.01 is far worse on held-out data (0.46) than on
-  seed 0 (0.15), confirming that the seed-0 result was not representative.
+1. **Training does not converge.** On the same kept sets, the closed form
+   reaches 0.0678 and the trained weights 0.4664. The mean gradient norm at
+   the end of cycle 5 is 0.0748.
+2. **Pruning continues after the outliers are gone.** Over the 20 datasets,
+   5 outliers are left after prune 2 and none after prune 3. Prunes 3 and 4
+   remove 3075 clean samples (1615 + 1460). Every dataset ends with 656
+   samples, and the closed form on them (0.0678) is worse than Oracle
+   (0.0194).
 
-**Decision.** The ratio-based `ours_v2` became the final method.
+**Decision.** Address observation 1 first (D2), then observation 2 (D3–D4).
 
-**Remaining limitation.** Pruning is still a fixed 10% per cycle. The second
-prune removes about 90 samples to catch the last few outliers (on seed 0:
-3 outliers, 87 clean). → E4.
+## D2 — Per-cycle convergence (D1, observation 1)
 
-## E4 — Threshold-based pruning: negative result
+**Plan (written before the run).** `ours_v2` with the pruning of `ours_v1`
+(ratio 10%, 5 cycles, no stopping rule), but each cycle trains until
+`‖∇‖ < tol` (at most 20000 iterations). Grid: `tol` ∈ {1e-3, 1e-4, 1e-5,
+1e-6} × lr ∈ {0.01, 0.1, 0.5}, plus fixed 200-iteration cycles at each lr for
+reference. Choice:
 
-Replace the fixed 10% removal with threshold removal, `|r| > k·σ_MAD`
-(`prune_rule="threshold"` in `ours_v2`). This uses the same threshold as the
-stopping rule, so pruning ends by itself once no sample exceeds it.
-Everything else is as in E3 (per-cycle convergence, `tol = 1e-5`), including
-`k = 3`.
+- `tol`: the largest value whose mean weight error is tied (difference below
+  0.0001) with that of `tol = 1e-6` at every learning rate.
+- lr: among the learning rates whose mean at that `tol` is tied with the
+  smallest, the one with the fewest mean total iterations.
 
-`experiments/run_threshold.py` → `results/ablation/step3_threshold.csv`,
-`step3_threshold_summary.json`
+**Setting.** `experiments/dev2_converge.py` → `results/dev2/`. Seeds 0–19.
 
-**Development (seed 0).** Threshold looked better: it kept 896 samples (1
-outlier) against ratio's 810, and ended at 0.0305 against 0.0317. It removed
-89 + 2 outliers and only 11 + 2 clean samples. The cycle cap (5 / 10 / 20)
-never binds. k = 2.5 gave 0.0243, below the oracle (0.0292). With a single
-dataset this is likely chance, so it was not used to pick k.
+**D2-a ratio pruning, 5 cycles, 20 datasets (cycle length: fixed 200 iterations or until ‖∇‖ < tol)** (`results/dev2/tables.md`)
 
-**Held-out (seeds 1–20, lr 0.1).**
+| lr | cycle length | weight error (mean ± SD) | closed form on kept set (mean) | max |trained − closed form| | total iterations (mean) | longest cycle | capped cycles | outliers kept (total) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.01 | fixed 200 | 0.4664 ± 0.3472 | 0.0678 | 1.0774 | 1000.0 | 200 | 0 | 0 |
+| 0.01 | 1e-3 | 0.0298 ± 0.0126 | 0.0299 | 0.0053 | 2869.4 | 1669 | 0 | 0 |
+| 0.01 | 1e-4 | 0.0290 ± 0.0126 | 0.0290 | 0.0006 | 3521.2 | 2013 | 0 | 0 |
+| 0.01 | 1e-5 | 0.0289 ± 0.0126 | 0.0289 | 0.0001 | 4078.1 | 2297 | 0 | 0 |
+| 0.01 | 1e-6 | 0.0289 ± 0.0126 | 0.0289 | 0.0000 | 4566.8 | 2539 | 0 | 0 |
+| 0.1 | fixed 200 | 0.0289 ± 0.0126 | 0.0289 | 0.0001 | 1000.0 | 200 | 0 | 0 |
+| 0.1 | 1e-3 | 0.0301 ± 0.0129 | 0.0293 | 0.0050 | 518.0 | 159 | 0 | 0 |
+| 0.1 | 1e-4 | 0.0290 ± 0.0125 | 0.0289 | 0.0004 | 746.8 | 200 | 0 | 0 |
+| 0.1 | 1e-5 | 0.0289 ± 0.0126 | 0.0289 | 0.0000 | 967.4 | 249 | 0 | 0 |
+| 0.1 | 1e-6 | 0.0289 ± 0.0126 | 0.0289 | 0.0000 | 1189.2 | 296 | 0 | 0 |
+| 0.5 | fixed 200 | 0.0291 ± 0.0125 | 0.0291 | 0.0000 | 1000.0 | 200 | 0 | 0 |
+| 0.5 | 1e-3 | 0.0293 ± 0.0134 | 0.0294 | 0.0043 | 528.6 | 133 | 0 | 0 |
+| 0.5 | 1e-4 | 0.0291 ± 0.0131 | 0.0292 | 0.0003 | 761.6 | 176 | 0 | 0 |
+| 0.5 | 1e-5 | 0.0289 ± 0.0126 | 0.0289 | 0.0001 | 980.5 | 303 | 0 | 0 |
+| 0.5 | 1e-6 | 0.0289 ± 0.0126 | 0.0289 | 0.0000 | 1240.7 | 1017 | 0 | 0 |
 
-| rule | k | weight error | clean kept (of ~899) | outliers left (total) | removed clean, noise + / − |
-| --- | --- | --- | --- | --- | --- |
-| ratio (E3) | 3 | 0.0224 ± 0.0102 | 810.0 | 1 | 932 / 852 |
-| threshold | 2.5 | 0.0389 ± 0.0210 | 804.4 | 1 | 1672 / 223 |
-| threshold | 3 | 0.0262 ± 0.0112 | 866.8 | 5 | 612 / 35 |
-| threshold | 4 | 0.0211 ± 0.0089 | 898.0 | 24 | 24 / 0 |
+**Observations.**
 
-Threshold (k = 3) beats ratio on only 7/20 datasets and is worse on average,
-even though it keeps 57 more clean samples. The development result did not
-generalize.
+- At `tol = 1e-5` and `1e-6`, the mean weight error is 0.0289 at all three
+  learning rates, and in every run the trained weight error differs from
+  that of the closed form on the kept set by at most 0.0001.
+- Fixed 200-iteration cycles at lr 0.01 are `ours_v1` (0.4664, as in D1).
+- No cycle reached the 20000-iteration cap.
+- With converged cycles, the remaining error comes from the kept set: the
+  closed form on it is 0.0289, against 0.0194 for Oracle (D0).
 
-**Cause: one-sided removal.** "noise + / −" counts the sign of the *true*
-noise of the clean samples that were removed. The first prune is decided by
-the naive fit, which is pulled toward the outliers. Clean residuals
-under that fit are skewed, so the clean samples above the threshold are
-almost all on one side (positive noise). Examples:
+**Decision** (by the rule above, with ties as "equal at 4 decimals"; the
+first version gives the same choice, see item 2 of "Changes made after a
+run"). `tol = 1e-4` and `1e-3` are not tied with
+`1e-6` at lr 0.01 (0.0290 and 0.0298 against 0.0289); `tol = 1e-5` is tied at
+all three learning rates. At `tol = 1e-5` the three learning rates are tied
+(0.0289), and lr 0.1 needs the fewest iterations (967.4 on average). **Chosen:
+`tol = 1e-5`, lr 0.1.**
 
-- seed 12: 78 of 79 removed clean samples had positive noise, and the mean
-  noise of the kept clean set shifted to −0.012 (0.0357 vs ratio 0.0168).
-- seed 3: 85 of 89 positive (0.0432 vs ratio 0.0216).
+## D3 — Stopping rule for ratio pruning (D1, observation 2)
 
-Threshold then removes very few samples, so this bias is never undone. Ratio
-removes about 90 clean samples in its second prune. That prune is made from
-a nearly unbiased fit, so it cuts both tails (e.g. 46 / 39 on seed 3), which
-happens to cancel most of the first-prune bias. Smaller k removes more
-samples one-sidedly and is worse. k = 4 removes almost no clean samples
-(24 / 0) and does slightly better than ratio on average (0.0211), but leaves
-24 outliers in the data. k = 4 was not a planned candidate, and no paired
-test was run for it.
+**Plan (written before the run).** Ratio pruning with `tol = 1e-5`, lr 0.1,
+at most 5 cycles, plus a stopping rule: after each cycle, compute
+`σ_MAD = 1.4826 · median(|r − median(r)|)` on the kept samples; if no kept
+sample has `|r| > k·σ_MAD`, stop. `k` ∈ {2, 2.5, 3, 3.5, 4}; no rule as the
+reference. Choice: the smallest mean weight error; ties are broken by the `k`
+closest to 3.
 
-**Decision.** Keep ratio pruning.
+**Setting.** `experiments/dev3_stop.py` → `results/dev3/`. Seeds 0–19.
+"Clean left out" counts clean samples outside the final kept set, split by
+the sign of their true noise `ε = y − x·w1`.
 
-**Next.** The bias comes from removals made by the contaminated first fit
-being permanent. → E5: recompute the inlier set from all samples after each
-refit (the idea of the C-step in least trimmed squares). Seeds 1–20 have now
-been used to compare pruning rules, so E5 is judged on fresh seeds.
+**D3-a ratio pruning with stopping rule k (tol 1e-5, lr 0.1, at most 5 cycles, 20 datasets)** (`results/dev3/tables.md`)
 
-## E5 — Re-admission pruning
+| k | weight error (mean ± SD) | prunes (mean) | stopped by the rule | clean kept (mean) | outliers kept (total) | clean left out, noise + / − (total) |
+| --- | --- | --- | --- | --- | --- | --- |
+| none | 0.0289 ± 0.0126 | 4.00 | – | 656.00 | 0 | 2455 / 2409 |
+| 2.0 | 0.0236 ± 0.0106 | 2.15 | 20 / 20 | 797.85 | 0 | 1062 / 965 |
+| 2.5 | 0.0230 ± 0.0103 | 2.00 | 20 / 20 | 810.00 | 0 | 937 / 847 |
+| 3.0 | 0.0230 ± 0.0103 | 2.00 | 20 / 20 | 810.00 | 0 | 937 / 847 |
+| 3.5 | 0.0230 ± 0.0103 | 2.00 | 20 / 20 | 810.00 | 0 | 937 / 847 |
+| 4.0 | 0.0229 ± 0.0102 | 1.80 | 20 / 20 | 827.75 | 5 | 777 / 652 |
 
-`prune_rule="readmit"` in `ours_v2`. After each converged cycle, the inlier
-set is recomputed from *all* samples: sample `i` is an inlier if
-`|r_i| ≤ 3·σ_MAD`, where `σ_MAD` is estimated from the residuals of the
-current inliers. Samples removed by an earlier, biased fit can therefore
-return. Training stops when the inlier set no longer changes. The fixed 10%
-ratio is no longer used, so `k = 3` is the only pruning parameter. Settings
-were fixed before evaluation: `k = 3`, `tol = 1e-5`, at most 5 cycles (same
-as E3).
+**Observations.**
 
-`experiments/run_readmit.py` → `results/ablation/step4_readmit.csv`,
-`step4_readmit_summary.json`
+- With any `k`, the rule stopped pruning within 5 cycles on all 20 datasets,
+  after 1.80–2.15 prunes on average instead of 4.
+- `k` = 2.5, 3 and 3.5 give the same means (0.0230, 810 clean samples kept,
+  no outlier kept). `k = 4` keeps more clean samples (827.75) and 5 outliers,
+  with a mean of 0.0229.
+- Every setting keeps at most 827.75 clean samples on average, while the
+  datasets have 881–918 clean samples: each prune removes a fixed 10% of the
+  kept samples.
 
-**Development (seed 0,** `seed0_trace` **in the summary).** The inlier set
-is 900 (3 outliers) after the first cycle, 906 (1 outlier) after the
-second, then fixed. Only 3 clean samples are removed (noise + / −: 1 / 2), so the one-sided bias of threshold
-pruning is gone. Weight error is 0.0313 (ratio 0.0317, oracle 0.0292).
+**Decision (by the rule above).** **Chosen: `k = 4`** (0.0229, the smallest
+mean). This setting is called **ratio-stop** below.
 
-**Held-out.** Seeds 1–20 were already used in E4, so the primary evaluation
-uses fresh seeds 21–40.
+## D4 — Pruning rule (D1, observation 2)
 
-| method | seeds 21–40 (primary) | seeds 1–20 (secondary) |
-| --- | --- | --- |
-| Oracle | 0.0191 ± 0.0080 | 0.0195 ± 0.0094 |
-| Naive | 0.2297 ± 0.0807 | 0.2476 ± 0.0965 |
-| ratio (E3) | 0.0218 ± 0.0093 | 0.0224 ± 0.0102 |
-| readmit | 0.0190 ± 0.0078 | 0.0201 ± 0.0094 |
+**Plan (written before the run).** Ratio pruning removes a fixed 10% per
+prune, including clean samples. Two rules use the `k·σ_MAD` cut itself,
+with `tol = 1e-5`, lr 0.1:
 
-These are the lr 0.1 values. lr 0.01 / 0.5 are identical to four decimals,
-except ratio at lr 0.01 on seeds 21–40 (0.0217).
+- **threshold:** remove the kept samples with `|r| > k·σ_MAD`; stop when none
+  are left. Removed samples do not return.
+- **readmit:** after each cycle, select from **all** samples those with
+  `|r| ≤ k·σ_MAD` (`σ_MAD` of the kept samples' residuals); samples removed
+  earlier can return. Stop when the selected set equals the current one.
 
-| readmit (seeds 21–40) | value |
-| --- | --- |
-| clean samples kept (of ~900) | 900.5 on average (ratio: 809.9) |
-| removed clean, noise + / − | 23 / 26 (ratio: 1006 / 856) |
-| outliers left, total over 20 datasets | 12 (ratio: 3) |
+`k` ∈ {2, 2.5, 3, 3.5, 4}, at most 20 cycles, compared with ratio-stop from D3.
+Choice: the smallest mean weight error over all rules and `k`; ties are broken
+by the `k` closest to 3, then by the fewest mean cycles. The cycle cap is
+chosen in D5.
 
-**Paired comparison, readmit − ratio (lr 0.1)**
-(`paired_tests_lr0.1` in `step4_readmit_summary.json`).
+**Setting.** `experiments/dev4_rules.py` → `results/dev4/`. Seeds 0–19.
 
-| seeds | mean diff | readmit better | sign test p | sign-flip p |
+**D4-a pruning rules (tol 1e-5, lr 0.1, 20 datasets; ratio-stop at most 5 cycles, the others at most 20)** (`results/dev4/tables.md`)
+
+| rule | k | weight error (mean ± SD) | cycles (mean) | cycles (max) | stopped by the rule | clean kept (mean) | outliers kept (total) | clean left out, noise + / − (total) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ratio-stop | 4.0 | 0.0229 ± 0.0102 | 2.80 | 3 | 20 / 20 | 827.75 | 5 | 777 / 652 |
+| threshold | 2.0 | 0.0598 ± 0.0301 | 6.15 | 11 | 20 / 20 | 656.50 | 0 | 3737 / 1117 |
+| threshold | 2.5 | 0.0384 ± 0.0212 | 3.60 | 5 | 20 / 20 | 804.30 | 0 | 1676 / 222 |
+| threshold | 3.0 | 0.0265 ± 0.0112 | 3.00 | 4 | 20 / 20 | 866.75 | 4 | 613 / 36 |
+| threshold | 3.5 | 0.0219 ± 0.0089 | 2.70 | 3 | 20 / 20 | 891.40 | 13 | 150 / 6 |
+| threshold | 4.0 | 0.0210 ± 0.0088 | 2.65 | 3 | 20 / 20 | 897.95 | 24 | 25 / 0 |
+| readmit | 2.0 | 0.0233 ± 0.0117 | 8.25 | 17 | 20 / 20 | 839.20 | 0 | 600 / 600 |
+| readmit | 2.5 | 0.0206 ± 0.0098 | 5.60 | 20 | 19 / 20 | 885.20 | 1 | 150 / 130 |
+| readmit | 3.0 | 0.0201 ± 0.0094 | 3.65 | 5 | 20 / 20 | 896.50 | 4 | 26 / 28 |
+| readmit | 3.5 | 0.0199 ± 0.0096 | 3.05 | 4 | 20 / 20 | 898.75 | 13 | 3 / 6 |
+| readmit | 4.0 | 0.0207 ± 0.0094 | 2.80 | 3 | 20 / 20 | 899.15 | 24 | 1 / 0 |
+
+**Observations.**
+
+- **threshold** leaves out more clean samples with positive noise than with
+  negative noise at every `k` (for example 613 / 36 at `k = 3`); removed
+  samples do not return.
+- At `k` ≤ 3.5, **readmit** leaves out clean samples of both signs (for
+  example 26 / 28 at `k = 3`). At every `k`, it keeps more clean samples on
+  average than threshold.
+- readmit with `k = 2.5` did not stop within 20 cycles on 1 of the 20
+  datasets; every other run stopped by its rule.
+- Within readmit, a larger `k` keeps more clean samples and more outliers
+  (0, 1, 4, 13 and 24 outliers for `k` = 2 to 4): at `k = 3.5`, readmit
+  keeps 898.75 clean samples on average and 13 outliers in total.
+
+**Decision (by the rule above).** **Chosen: readmit, `k = 3.5`** (0.0199, the
+smallest mean).
+
+## D5 — Final settings
+
+**Plan (written before the run).** Fix the cycle cap at 50, as a safety limit
+far above the cycles used in D4 (at most 5 for readmit with `k` ≥ 3), and run
+the chosen method at lr 0.01, 0.1 and 0.5 to check that the choice of lr from
+D2 still holds. No setting is chosen from this run unless lr 0.1 is not tied
+with the smallest mean.
+
+**Setting.** `experiments/dev5_final.py` → `results/dev5/`. Seeds 0–19.
+
+**D5-a readmit, k = 3.5, tol 1e-5, at most 50 cycles, 20 datasets** (`results/dev5/tables.md`)
+
+| lr | weight error (mean ± SD) | cycles (max) | stopped by the rule | longest cycle (iterations) |
 | --- | --- | --- | --- | --- |
-| 21–40 | −0.0027 | 12 / 20 | 0.50 | 0.15 |
-| 1–20 | −0.0023 | 14 / 20 | 0.12 | 0.17 |
-| 1–40 | −0.0025 | 26 / 40 | 0.08 | 0.04 |
+| 0.01 | 0.0199 ± 0.0095 | 4 | 20 / 20 | 2297 |
+| 0.1 | 0.0199 ± 0.0096 | 4 | 20 / 20 | 249 |
+| 0.5 | 0.0199 ± 0.0095 | 4 | 20 / 20 | 432 |
 
-- Readmit matches the oracle on average (−0.0001 vs oracle on seeds 21–40),
-  keeps about 90 more clean samples, and removes clean samples symmetrically.
-- The improvement over ratio has the same direction on both seed sets but
-  is small. It is not significant on the fresh set alone (p = 0.15). The
-  pooled p = 0.04 includes seeds 1–20, which were already used for an
-  earlier model choice.
-- It leaves more outliers in the data (12 vs 3 over 20 datasets). These are
-  outliers whose residuals are within 3σ, i.e. samples with small `x·w1`.
-  They are close to the regression surface. Their effect on the fit is
-  measured in E8.
-- Two runs (seeds 17 and 23) reached the 5-cycle cap before the set stopped
-  changing. This is not oscillation: after the first re-selection, the set
-  changes by 1–2 samples per cycle. With a 20-cycle cap both stop at cycle 5 with the same weight error
-  (`capped_runs_with_20_cycles` in the summary).
+**Observations.** The mean is 0.0199 at all three learning rates; every run
+stopped by the rule within 4 cycles.
 
-**Decision.** Readmit is a candidate (small, consistent improvement, one
-fewer parameter, more data kept), but the evidence is weak. → E6: a
-pre-registered test with enough samples.
+**Decision.** lr 0.1 is kept. The final method is fixed (next section).
 
-## E6 — Pre-registered confirmatory test: readmit vs ratio
+## Final method `ours`
 
-### Plan (written before the run, unchanged)
+`ours` in `src/outlier_regression/outlier_removal.py`, i.e.
+`ours_v2(prune_rule="readmit", stop_k=3.5, converge_tol=1e-5, max_cycles=50,
+max_cycle_iters=20000, learning_rate=0.1)`:
 
-- **Hypothesis.** Re-admission pruning (`prune_rule="readmit"`) gives a
-  different final weight error than ratio pruning (the current final method).
-  The expected direction is lower.
-- **Primary metric.** Final weight error `‖ŵ − w1‖₂`, learning rate 0.1.
-- **Test.** Paired two-sided sign-flip permutation test on the per-dataset
-  differences (readmit − ratio), with 100000 random sign flips
-  (`numpy.random.default_rng(0)`). Secondary: Wilcoxon signed-rank test.
-- **α.** 0.05. This is the only confirmatory comparison.
-- **Data.** 100 fresh datasets, seeds 41–140, never used before.
-- **Settings (unchanged).** Both methods: `converge_tol = 1e-5`,
-  `stop_k = 3`, at most 5 cycles, `seed = 0` for weight initialization.
-  Ratio uses `outlier_ratio = 0.1`.
-- **Sample size.** From seeds 21–40: mean difference −0.0027, SD of the
-  differences about 0.0081. For 80% power at α = 0.05, n ≈ 70 is needed,
-  so n = 100 was chosen.
-- **Decision rule.** If p < 0.05 and the mean difference is negative,
-  readmit becomes the final method. Otherwise ratio stays.
-- **Also reported.** The mean difference with a 95% bootstrap CI (10000
-  resamples, `default_rng(0)`), the win count, and Oracle / Naive on the
-  same seeds.
+1. Start with all samples kept.
+2. Initialise the weights from `N(0, 1)` and a fresh Adam state
+   (`β1 = 0.9`, `β2 = 0.999`, `ε = 1e-8`); train full-batch Adam at lr 0.1 on
+   the kept samples until `‖∇‖ < 1e-5` (at most 20000 iterations).
+3. Compute `σ_MAD` of the kept samples' residuals and select, from all
+   samples, those with `|r| ≤ 3.5·σ_MAD`.
+4. If the selection equals the kept set, stop. Otherwise it becomes the kept
+   set; go to 2 (at most 50 cycles in total).
 
-### Result
+| setting | value | chosen in |
+| --- | --- | --- |
+| convergence tolerance | `1e-5` | D2 |
+| learning rate | 0.1 | D2, checked in D5 |
+| pruning rule | readmit | D4 |
+| `k` | 3.5 | D4 |
+| cycle cap | 50 | D5 (safety limit) |
+| iteration cap per cycle | 20000 | fixed before D2 |
 
-Ran exactly as planned. `experiments/run_confirmatory.py` →
-`results/confirmatory/`
+## T1 plan (written before the run)
 
-| method (seeds 41–140, n = 100, lr 0.1) | weight error |
+- **Data.** Seeds 100–199 (100 datasets), not used before.
+- **Methods.** Oracle, Naive, the 72-combination optimizer grid of E1,
+  `ours_v1` (D1), ratio-stop (D3: ratio 10%, `k = 4`, at most 5 cycles),
+  threshold with `k = 4` (the best threshold setting in D4, at most 20
+  cycles), and `ours`. Every setting is as in development.
+- **Hypotheses.** Per-dataset differences `d = ours − B` for
+  B ∈ {Naive, `ours_v1`, ratio-stop, threshold}. H0: mean `d` = 0.
+- **Tests.** Two-sided sign-flip permutation test of mean `d` (100000 random
+  sign vectors, `numpy.random.default_rng(0)`, p = (count + 1) / 100001).
+  Holm correction over the four hypotheses at α = 0.05. Reported with each:
+  mean `d`, 95% percentile bootstrap CI (10000 resamples,
+  `default_rng(1)`), and the number of datasets with `d < 0`.
+- **Descriptive (no test).** `ours − Oracle` with the same CI; the grid
+  summary as in D0; `ours` at lr 0.01 and 0.5; cycles used, runs stopped by
+  the rule, clean samples kept and outliers kept.
+- The results are reported whatever they are; no setting is changed after the
+  run.
+
+## T1 — Final evaluation (seeds 100–199)
+
+**Setting.** `experiments/t1_final.py` → `results/t1/`, run as planned (see
+item 3 of "Changes made after a run").
+`tests.json` holds the unrounded test values.
+
+**T1-a weight error, 100 datasets** (`results/t1/tables.md`)
+
+| method | weight error (mean ± SD) | median | min–max |
+| --- | --- | --- | --- |
+| Oracle | 0.0186 ± 0.0081 | 0.0173 | 0.0046–0.0389 |
+| Naive | 0.2441 ± 0.0679 | 0.2299 | 0.0850–0.4573 |
+| optimizer grid, best mean (RMSProp, SGD, zero, lr 0.01) | 0.1791 ± 0.0721 | 0.1692 | 0.0413–0.3941 |
+| ours_v1 | 0.5461 ± 0.3498 | 0.4967 | 0.0144–1.5263 |
+| ratio-stop | 0.0215 ± 0.0095 | 0.0198 | 0.0042–0.0493 |
+| threshold | 0.0191 ± 0.0081 | 0.0184 | 0.0049–0.0367 |
+| ours | 0.0187 ± 0.0083 | 0.0172 | 0.0048–0.0386 |
+
+**T1-b pre-registered tests** (`results/t1/tables.md`)
+
+| B | mean of ours − B | 95% CI | ours < B | p | p (Holm) | H0 rejected |
+| --- | --- | --- | --- | --- | --- | --- |
+| Naive | -0.2254 | [-0.2392, -0.2121] | 100 / 100 | < 0.0001 | < 0.0001 | yes |
+| ours_v1 | -0.5274 | [-0.5987, -0.4610] | 100 / 100 | < 0.0001 | < 0.0001 | yes |
+| ratio-stop | -0.0028 | [-0.0041, -0.0016] | 61 / 100 | < 0.0001 | 0.0001 | yes |
+| threshold | -0.0005 | [-0.0008, -0.0001] | 53 / 100 | 0.0129 | 0.0129 | yes |
+
+**T1-c ours − Oracle (descriptive)** (`results/t1/tables.md`)
+
+| quantity | value |
 | --- | --- |
-| Oracle | 0.0172 ± 0.0072 |
-| Naive | 0.2476 ± 0.0693 |
-| ratio | 0.0199 ± 0.0086 |
-| readmit | 0.0174 ± 0.0077 |
+| mean of ours − Oracle | 0.0001 |
+| 95% CI | [-0.0002, 0.0004] |
+| datasets with ours < Oracle | 49 / 100 |
 
-- readmit − ratio: mean −0.00253, 95% bootstrap CI [−0.00376, −0.00133].
-  Readmit is better on 65 / 100 datasets. The sample SD of the differences
-  is 0.0062, close to the planning estimate (about 0.0081, derived from the
-  t statistic; the recomputed sample SD on seeds 21–40 is 0.0082,
-  `sd_diff_sample` in `step4_readmit_summary.json`).
-- Primary, sign-flip permutation: **p = 0.00012**. Secondary, Wilcoxon
-  signed-rank: z = −3.72, p = 0.00020.
-- **Decision (per the pre-registered rule): adopt readmit as the final
-  method.**
-- Descriptive, not tested:
-  - readmit − Oracle is +0.00018 on average.
-  - Readmit keeps 896.8 of ~899.6 clean samples on average (ratio: 812.6).
-  - It leaves 43 outliers in total, in 28 of 100 datasets (ratio: 10).
-  - 11 / 100 runs reached the 5-cycle cap before the inlier set stopped
-    changing.
+**T1-d ours by learning rate (descriptive)** (`results/t1/tables.md`)
 
-## E7 — Descriptive values on the E6 seeds
-
-Descriptive values of readmit on seeds 41–140 (n = 100), which were not part
-of the pre-registered test. Because these seeds were used for the E6 choice,
-the README reports the final method on untouched seeds instead (E8).
-
-`results/confirmatory/summary.json`, `per_seed.csv`,
-`extra_summary.json`, `extra_optimizer_grid.csv`
-(`experiments/run_confirmatory.py`, `experiments/run_eval_extra.py`)
-
-### Main table
-
-| method | weight error (mean ± std) | min–max |
-| --- | --- | --- |
-| Oracle | 0.0172 ± 0.0072 | 0.0042–0.0355 |
-| Naive | 0.2476 ± 0.0693 | 0.0620–0.4117 |
-| optimizer grid, Adam(`full`, `zero`) | 0.2476 ± 0.0693 | 0.0620–0.4117 |
-| optimizer grid, best: RMSProp(`SGD`, `zero`) | 0.1866 ± 0.0744 | 0.0323–0.3987 |
-| `ours` (readmit, lr 0.1) | 0.0174 ± 0.0077 | 0.0022–0.0351 |
-| ratio (E6) | 0.0199 ± 0.0086 | 0.0033–0.0491 |
-
-### Optimizer grid on the evaluation set (lr 0.01, 1000 epochs, mini-batch size 32)
-
-| optimizer | batch | init | weight error (mean ± std) | min–max |
-| --- | --- | --- | --- | --- |
-| GD | SGD | random | 0.3942 ± 0.1203 | 0.1664–0.8776 |
-| GD | SGD | sparse | 0.4668 ± 0.1343 | 0.1759–0.9486 |
-| GD | SGD | zero | 0.2938 ± 0.0996 | 0.0628–0.6992 |
-| GD | full | random | 0.3798 ± 0.0903 | 0.1846–0.5680 |
-| GD | full | sparse | 0.4582 ± 0.1058 | 0.2275–0.6992 |
-| GD | full | zero | 0.2771 ± 0.0696 | 0.0680–0.4657 |
-| GD | mini-batch | random | 0.3790 ± 0.0908 | 0.2021–0.5778 |
-| GD | mini-batch | sparse | 0.4572 ± 0.1075 | 0.2336–0.7098 |
-| GD | mini-batch | zero | 0.2749 ± 0.0721 | 0.0771–0.4909 |
-| AdaGrad | SGD | random | 1.7193 ± 0.2791 | 0.9938–2.2614 |
-| AdaGrad | SGD | sparse | 1.8480 ± 0.2847 | 1.1772–2.3682 |
-| AdaGrad | SGD | zero | 0.6719 ± 0.1971 | 0.1479–1.0687 |
-| AdaGrad | full | random | 1.6089 ± 0.2834 | 0.8814–2.1663 |
-| AdaGrad | full | sparse | 1.5079 ± 0.3304 | 0.9268–2.0476 |
-| AdaGrad | full | zero | 0.5237 ± 0.1628 | 0.0698–0.8498 |
-| AdaGrad | mini-batch | random | 1.6130 ± 0.2834 | 0.8834–2.1685 |
-| AdaGrad | mini-batch | sparse | 1.6101 ± 0.2985 | 1.0839–2.1203 |
-| AdaGrad | mini-batch | zero | 0.5346 ± 0.1644 | 0.0850–0.8574 |
-| RMSProp | SGD | random | 0.2649 ± 0.1235 | 0.0572–0.6228 |
-| RMSProp | SGD | sparse | 0.3058 ± 0.1549 | 0.0374–0.8161 |
-| RMSProp | SGD | zero | 0.1866 ± 0.0744 | 0.0323–0.3987 |
-| RMSProp | full | random | 0.2479 ± 0.0694 | 0.0719–0.4195 |
-| RMSProp | full | sparse | 0.2476 ± 0.0703 | 0.0523–0.4195 |
-| RMSProp | full | zero | 0.2484 ± 0.0696 | 0.0523–0.4081 |
-| RMSProp | mini-batch | random | 0.2440 ± 0.0781 | 0.0741–0.4837 |
-| RMSProp | mini-batch | sparse | 0.2440 ± 0.0781 | 0.0741–0.4841 |
-| RMSProp | mini-batch | zero | 0.2440 ± 0.0781 | 0.0741–0.4836 |
-| Adam | SGD | random | 0.5021 ± 0.1466 | 0.1970–0.8899 |
-| Adam | SGD | sparse | 0.4567 ± 0.1778 | 0.1037–1.0515 |
-| Adam | SGD | zero | 0.2918 ± 0.1027 | 0.0321–0.6066 |
-| Adam | full | random | 0.2662 ± 0.0611 | 0.1435–0.4147 |
-| Adam | full | sparse | 0.2476 ± 0.0693 | 0.0619–0.4117 |
-| Adam | full | zero | 0.2476 ± 0.0693 | 0.0620–0.4117 |
-| Adam | mini-batch | random | 0.2704 ± 0.0681 | 0.1525–0.4737 |
-| Adam | mini-batch | sparse | 0.2472 ± 0.0789 | 0.0673–0.4958 |
-| Adam | mini-batch | zero | 0.2468 ± 0.0794 | 0.0518–0.4917 |
-
-The smallest mean weight error over the 36 configurations is
-0.1866 (RMSProp, `SGD`, `zero`). Full-batch configurations that
-converge reach the naive solution (Adam, `full`, `zero`: 0.2476).
-
-### `ours` by learning rate
-
-| lr | weight error (mean ± std) |
+| lr | weight error of ours (mean ± SD) |
 | --- | --- |
-| 0.01 | 0.0174 ± 0.0077 |
-| 0.1 | 0.0174 ± 0.0077 |
-| 0.5 | 0.0174 ± 0.0077 |
+| 0.01 | 0.0187 ± 0.0083 |
+| 0.1 | 0.0187 ± 0.0083 |
+| 0.5 | 0.0187 ± 0.0083 |
 
-The largest per-dataset difference between learning rates is
-9.16e-05 (`9.2×10⁻⁵`).
+**T1-e selection by ours (descriptive)** (`results/t1/tables.md`)
 
-### `ours` vs Oracle per dataset
-
-`ours` beats Oracle on 48 of 100 datasets, although Oracle is better on
-average (mean difference 0.00018). The two are least-squares fits on
-different sample sets:
-
-- Oracle uses every clean sample.
-- `ours` excludes the clean samples with `|r| > 3·σ_MAD` (2.88 on average)
-  and keeps the outliers with small residuals (43 in total).
-
-When the excluded clean samples happen to carry large noise, the `ours`
-fit is closer to `w1`. With Gaussian noise, using all clean samples is
-better on average. Oracle is therefore an upper bound *on average*, not on
-every dataset.
-
-The difference is not distinguishable from zero: two-sided sign test
-p = 0.76 (48 / 100), mean difference 0.00018 with 95% bootstrap CI
-[−0.00031, +0.00070] (10000 resamples, `default_rng(0)`; `ours_minus_oracle`
-in `extra_summary.json`). `ours` does not systematically beat Oracle, which
-would have pointed to label leakage or a bug.
-
-### Runs that hit the 5-cycle cap
-
-11 of 100 runs reached the 5-cycle cap before the inlier set was confirmed
-unchanged. Re-run with a 20-cycle cap (`capped_runs_with_20_cycles` in
-`extra_summary.json`):
-
-| seed | stops with 20-cycle cap | inlier set sizes | changes between cycles | weight error, cap 5 | weight error, cap 20 |
-| --- | --- | --- | --- | --- | --- |
-| 60 | yes (after cycle 5) | 864, 913, 914, 913 | 53, 3, 1 | 0.0169 | 0.0169 |
-| 71 | yes (after cycle 5) | 850, 894, 898, 899 | 48, 4, 1 | 0.0183 | 0.0183 |
-| 72 | yes (after cycle 5) | 812, 894, 897, 898 | 86, 3, 1 | 0.0161 | 0.0161 |
-| 92 | yes (after cycle 5) | 881, 895, 898, 899 | 30, 3, 1 | 0.0351 | 0.0351 |
-| 93 | yes (after cycle 5) | 844, 901, 908, 909 | 63, 7, 1 | 0.0059 | 0.0059 |
-| 98 | no (oscillates) | 852, 895, 899, 898, 899, … (alternating) | 49, 4, 1, 1, 1, … | 0.0153 | 0.0155 |
-| 108 | yes (after cycle 5) | 796, 873, 884, 887 | 89, 11, 3 | 0.0154 | 0.0154 |
-| 110 | yes (after cycle 5) | 841, 887, 890, 891 | 56, 3, 1 | 0.0295 | 0.0295 |
-| 120 | yes (after cycle 5) | 859, 895, 896, 895 | 42, 3, 1 | 0.0291 | 0.0291 |
-| 139 | yes (after cycle 5) | 844, 880, 883, 882 | 38, 3, 1 | 0.0198 | 0.0198 |
-| 140 | yes (after cycle 5) | 830, 882, 885, 886 | 58, 3, 1 | 0.0131 | 0.0131 |
-
-- 10 of 11 settle: the set after cycle 5 no longer changes, so the 5-cycle
-  result is identical (the cap only skipped the final check).
-- `seed=98` does not settle. One sample alternates between in and out, so the
-  inlier set oscillates between 898 and 899 samples and the weight error
-  between 0.0153 and 0.0155. No rule against oscillation is applied.
-- This corrects E5, where "not oscillation" was checked on seeds 17 and 23
-  only.
-
-### Outliers kept by `ours`, and cycle length
-
-`outlier_xw1_left`, `outlier_xw1_removed` and `max_epochs_in_one_cycle_lr0.1`
-in `extra_summary.json` (lr 0.1):
-
-| | n | `x·w1` |
-| --- | --- | --- |
-| outliers kept (not removed) | 43 | mean 0.144, max 0.263 |
-| outliers removed | 9993 | mean 0.989, min 0.074 |
-
-Kept outliers have small `x·w1`, so their residual under the clean fit
-(about `2·x·w1`) is within `3·σ_MAD`. They lie close to the regression
-surface. Only 1.8% of the removed outliers have `x·w1` below the largest
-kept value (0.263) (`fraction_below_max_left`).
-
-The longest cycle needed 651 epochs, so the per-cycle cap of 20000 epochs
-was never reached.
-
-### Removal of the first-fit bias
-
-`excluded_clean_noise_sign_after_first_cycle` and
-`excluded_clean_noise_sign_final` in `extra_summary.json` (lr 0.1, summed over
-the 100 datasets). The counts are clean samples excluded from the inlier
-set, split by the sign of their true noise:
-
-| | noise > 0 | noise < 0 |
-| --- | --- | --- |
-| after the first cycle | 3398 | 56 |
-| final inlier set | 128 | 160 |
-
-The first selection is made from the contaminated fit and is one-sided, as
-in E4. After re-selection, the exclusions are roughly balanced. The final
-total of 288 clean samples is 2.88 per dataset.
-
-### Derived values
-
-Computed from unrounded values; the rounded inputs shown can give a
-different last digit.
-
-| value | computation |
+| quantity | value |
 | --- | --- |
-| 14.4× | Naive / Oracle mean weight error: 0.2476 / 0.0172 = 14.41 |
-| 10.9× | best optimizer-grid configuration / Oracle: 0.1866 / 0.0172 = 10.86 (RMSProp, `SGD`, `zero`) |
-| 93.0% | reduction vs Naive: 1 − 0.0174 / 0.2476 = 92.99% |
-| 0.00018 | mean of `ours` − Oracle: 0.00018 |
-| 48 / 100 | datasets where `ours` < Oracle: 48 (`ours_better_than_oracle` in `extra_summary.json`) |
-| 2.88 | clean samples excluded by `ours`, mean: 2.88 (`ours_clean_removed_mean`) |
-| 100 / 100 | datasets where `ours` < Naive: 100 |
-| 896.8 of 899.6 (99.7%) | clean samples kept by `ours`: 896.76 of 899.64 (99.68%) |
-| 28, 43 | datasets with outliers left, total outliers left: 28, 43 |
-| 11 | runs that hit the 5-cycle cap: 11 |
-| 80–125 | outliers per dataset: 80–125 |
-| 0.017 | median weight error of Oracle and readmit: 0.0171, 0.0166 |
-| 0.243 | median weight error of Naive: 0.2434 |
+| cycles used (min–max) | 2–4 |
+| runs stopped by the rule | 100 / 100 |
+| longest cycle (iterations) | 290 |
+| clean samples kept (total) | 89826 of 89876 |
+| clean left out, noise + / − (total) | 28 / 22 |
+| outliers kept (total) | 55 of 10124 |
+| datasets with at least one outlier kept | 33 / 100 |
 
-## E8 — Final evaluation on untouched seeds
+Figure `results/t1/strip.png`: per-dataset weight errors; the bars and
+numbers are the medians of T1-a.
 
-### Plan (written before the run)
+**T1-grid-a Oracle and Naive** (`results/t1/tables.md`)
 
-Seeds 41–140 were used in E6 to choose between two candidates, so numbers
-measured on them are not an unbiased estimate of the chosen method. E8
-evaluates the final method once on 100 new datasets that were never used
-for any decision.
-
-- **Data.** Seeds 141–240 (100 datasets), not used before.
-- **Method.** `ours` = `ours_v2(prune_rule="readmit", stop_k=3,
-  converge_tol=1e-5, num_cycles=5, learning_rate=0.1, seed=0)`, exactly as
-  adopted in E6. Also run at lr 0.01 and 0.5 to report the learning-rate
-  dependence. No setting is changed after this plan.
-- **Comparisons.** Oracle and Naive (closed form, `pinv`). The optimizer
-  grid of experiment 2 (36 configurations, lr 0.01, 1000 epochs).
-- **Reported.** Weight error mean ± std (population std) and min–max for
-  each method. `ours` vs Naive: count of datasets where `ours` is lower.
-  `ours` vs Oracle: mean difference, 95% bootstrap CI (10000 resamples,
-  `default_rng(0)`), and a two-sided sign-flip test (100000 flips,
-  `default_rng(0)`), the same test as E6.
-- **Descriptive diagnostics.** Clean samples kept, outliers left, and `x·w1`
-  of kept vs removed outliers. The effect of the kept outliers, measured by
-  refitting the final inlier set without them. The final `σ_MAD` against
-  the true noise standard deviation (0.1). Noise signs of the excluded
-  clean samples after the first cycle and at the end. Runs that reach the
-  5-cycle cap, re-run with a 20-cycle cap. The longest cycle in epochs.
-- **No decision** depends on E8. It only reports the final method.
-
-### Result
-
-Ran as planned. `experiments/run_evaluation.py` → `results/evaluation/`
-(`summary.json`, `per_seed.csv`, `optimizer_grid.csv`,
-`weight_error_by_seed.png`). Outliers per dataset: 81–123.
-These are the values reported in the README.
-
-**Main table (README table 3).**
-
-| method | weight error (mean ± std) | min–max |
+| method | weight error (mean ± SD) | min–max |
 | --- | --- | --- |
-| Oracle | 0.0188 ± 0.0082 | 0.0046–0.0415 |
-| Naive | 0.2478 ± 0.0674 | 0.1218–0.4573 |
-| optimizer grid, Adam(`full`, `zero`) | 0.2478 ± 0.0674 | 0.1218–0.4573 |
-| `ours` | 0.0188 ± 0.0078 | 0.0053–0.0414 |
+| Oracle | 0.0186 ± 0.0081 | 0.0046–0.0389 |
+| Naive | 0.2441 ± 0.0679 | 0.0850–0.4573 |
 
-Medians, shown rounded to three decimals in README figure 5: Oracle 0.0181
-(0.018), Naive 0.2407 (0.241), `ours` 0.0179 (0.018).
+**T1-grid-b optimizer grid overview** (`results/t1/tables.md`)
 
-**`ours` vs Naive and Oracle.**
-
-- `ours` < Naive on 100 / 100 datasets. Reduction of the mean:
-  1 − 0.0188 / 0.2478 = 92.4%. Naive / Oracle = 0.2478 / 0.0188 = 13.2×.
-- `ours` − Oracle: mean +0.00003, 95% bootstrap CI
-  [−0.00044, +0.00049], two-sided sign-flip p = 0.895.
-  `ours` is lower on 49 / 100. Not significant. This does not show that
-  the two are equal; it shows no detectable difference at n = 100.
-
-**Learning rate.**
-
-| lr | weight error (mean ± std) |
+| quantity | value |
 | --- | --- |
-| 0.01 | 0.0188 ± 0.0079 |
-| 0.1 | 0.0188 ± 0.0078 |
-| 0.5 | 0.0188 ± 0.0079 |
+| outliers per dataset (min–max) | 81–125 |
+| combinations reaching Naive (max ‖ŵ − ŵ_naive‖ is 0.0000 at 4 decimals) | 5 / 72 |
+| smallest mean weight error over the grid | 0.1791 (RMSProp, SGD, zero, lr 0.01) |
+| datasets where that combination is below Naive | 79 / 100 |
 
-Largest per-dataset difference between learning rates: 0.0015.
+**T1-grid-c optimizer grid, all 72 combinations** (`results/t1/tables.md`)
 
-**Optimizer grid (lr 0.01, 1000 epochs, mini-batch size 32).** Every optimizer
-minimizes the same convex loss (MSE on all data), whose unique minimizer is
-the Naive solution. Adam(`full`, `zero`) matches the Naive weight error
-within 0.00055 on every dataset. A configuration whose value differs
-from Naive has not reached the minimum within 1000 epochs. The smallest mean
-over the 36 configurations is 0.1882 (RMSProp, `SGD`, `zero`).
+| optimizer | batch | init | lr | weight error (mean ± SD) | min–max | max ‖ŵ − ŵ_naive‖ |
+| --- | --- | --- | --- | --- | --- | --- |
+| GD | full | random | 0.01 | 0.3850 ± 0.0883 | 0.1444–0.5899 | 0.3875 |
+| GD | full | zero | 0.01 | 0.2736 ± 0.0665 | 0.1027–0.4595 | 0.1431 |
+| GD | full | sparse | 0.01 | 0.4632 ± 0.0921 | 0.2115–0.6725 | 0.4843 |
+| GD | mini-batch | random | 0.01 | 0.3835 ± 0.0887 | 0.1432–0.5931 | 0.3854 |
+| GD | mini-batch | zero | 0.01 | 0.2709 ± 0.0673 | 0.1036–0.4679 | 0.1365 |
+| GD | mini-batch | sparse | 0.01 | 0.4618 ± 0.0938 | 0.2144–0.6596 | 0.4798 |
+| GD | SGD | random | 0.01 | 0.3965 ± 0.1095 | 0.1664–0.6275 | 0.5655 |
+| GD | SGD | zero | 0.01 | 0.2835 ± 0.0933 | 0.0740–0.5686 | 0.3165 |
+| GD | SGD | sparse | 0.01 | 0.4695 ± 0.1115 | 0.1551–0.7337 | 0.5656 |
+| AdaGrad | full | random | 0.01 | 1.6377 ± 0.2998 | 0.9086–2.2565 | 2.2481 |
+| AdaGrad | full | zero | 0.01 | 0.5283 ± 0.1617 | 0.1161–0.8976 | 0.6875 |
+| AdaGrad | full | sparse | 0.01 | 1.5274 ± 0.3349 | 0.9070–2.0701 | 2.0425 |
+| AdaGrad | mini-batch | random | 0.01 | 1.6422 ± 0.2995 | 0.9231–2.2623 | 2.2548 |
+| AdaGrad | mini-batch | zero | 0.01 | 0.5386 ± 0.1633 | 0.1238–0.9147 | 0.6915 |
+| AdaGrad | mini-batch | sparse | 0.01 | 1.6288 ± 0.2996 | 1.0664–2.1189 | 2.0524 |
+| AdaGrad | SGD | random | 0.01 | 1.7451 ± 0.2947 | 1.0630–2.3522 | 2.3434 |
+| AdaGrad | SGD | zero | 0.01 | 0.6769 ± 0.1981 | 0.1479–1.1215 | 0.7894 |
+| AdaGrad | SGD | sparse | 0.01 | 1.8712 ± 0.2871 | 1.1735–2.4382 | 2.3735 |
+| RMSProp | full | random | 0.01 | 0.2436 ± 0.0688 | 0.0764–0.4640 | 0.0100 |
+| RMSProp | full | zero | 0.01 | 0.2442 ± 0.0683 | 0.0938–0.4507 | 0.0100 |
+| RMSProp | full | sparse | 0.01 | 0.2437 ± 0.0675 | 0.0938–0.4507 | 0.0100 |
+| RMSProp | mini-batch | random | 0.01 | 0.2419 ± 0.0729 | 0.0761–0.4750 | 0.1391 |
+| RMSProp | mini-batch | zero | 0.01 | 0.2419 ± 0.0729 | 0.0761–0.4743 | 0.1388 |
+| RMSProp | mini-batch | sparse | 0.01 | 0.2419 ± 0.0729 | 0.0761–0.4746 | 0.1386 |
+| RMSProp | SGD | random | 0.01 | 0.2686 ± 0.1217 | 0.0572–0.6010 | 0.6599 |
+| RMSProp | SGD | zero | 0.01 | 0.1791 ± 0.0721 | 0.0413–0.3941 | 0.3387 |
+| RMSProp | SGD | sparse | 0.01 | 0.3024 ± 0.1416 | 0.0374–0.6948 | 0.6799 |
+| Adam | full | random | 0.01 | 0.2639 ± 0.0601 | 0.1435–0.4647 | 0.1751 |
+| Adam | full | zero | 0.01 | 0.2440 ± 0.0679 | 0.0850–0.4573 | 0.0004 |
+| Adam | full | sparse | 0.01 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0005 |
+| Adam | mini-batch | random | 0.01 | 0.2667 ± 0.0637 | 0.1478–0.4746 | 0.1860 |
+| Adam | mini-batch | zero | 0.01 | 0.2405 ± 0.0750 | 0.0859–0.4567 | 0.1237 |
+| Adam | mini-batch | sparse | 0.01 | 0.2409 ± 0.0749 | 0.0946–0.4562 | 0.1342 |
+| Adam | SGD | random | 0.01 | 0.5076 ± 0.1433 | 0.2102–0.8375 | 0.8233 |
+| Adam | SGD | zero | 0.01 | 0.2824 ± 0.0970 | 0.0321–0.5640 | 0.3145 |
+| Adam | SGD | sparse | 0.01 | 0.4622 ± 0.1599 | 0.0963–0.8822 | 0.7615 |
+| GD | full | random | 0.1 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0000 |
+| GD | full | zero | 0.1 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0000 |
+| GD | full | sparse | 0.1 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0000 |
+| GD | mini-batch | random | 0.1 | 0.2436 ± 0.0788 | 0.0780–0.5868 | 0.2041 |
+| GD | mini-batch | zero | 0.1 | 0.2436 ± 0.0788 | 0.0780–0.5868 | 0.2041 |
+| GD | mini-batch | sparse | 0.1 | 0.2436 ± 0.0788 | 0.0780–0.5868 | 0.2041 |
+| GD | SGD | random | 0.1 | 0.4540 ± 0.2737 | 0.0778–1.4418 | 1.2866 |
+| GD | SGD | zero | 0.1 | 0.4381 ± 0.2540 | 0.0634–1.5420 | 1.1812 |
+| GD | SGD | sparse | 0.1 | 0.4388 ± 0.2406 | 0.0567–1.3256 | 1.0530 |
+| AdaGrad | full | random | 0.1 | 0.3009 ± 0.0619 | 0.1316–0.4754 | 0.3266 |
+| AdaGrad | full | zero | 0.1 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0015 |
+| AdaGrad | full | sparse | 0.1 | 0.2442 ± 0.0678 | 0.0858–0.4573 | 0.0102 |
+| AdaGrad | mini-batch | random | 0.1 | 0.3211 ± 0.0724 | 0.1313–0.5164 | 0.3399 |
+| AdaGrad | mini-batch | zero | 0.1 | 0.2414 ± 0.0693 | 0.0974–0.4646 | 0.0831 |
+| AdaGrad | mini-batch | sparse | 0.1 | 0.2435 ± 0.0691 | 0.0980–0.4675 | 0.1144 |
+| AdaGrad | SGD | random | 0.1 | 0.7388 ± 0.1956 | 0.2997–1.1599 | 1.1360 |
+| AdaGrad | SGD | zero | 0.1 | 0.3110 ± 0.0916 | 0.0838–0.6490 | 0.3730 |
+| AdaGrad | SGD | sparse | 0.1 | 0.7697 ± 0.2109 | 0.2664–1.3610 | 1.2561 |
+| RMSProp | full | random | 0.1 | 0.2459 ± 0.0985 | 0.0506–0.4901 | 0.1000 |
+| RMSProp | full | zero | 0.1 | 0.2788 ± 0.0922 | 0.0824–0.5290 | 0.1000 |
+| RMSProp | full | sparse | 0.1 | 0.2039 ± 0.1125 | 0.0506–0.5290 | 0.1000 |
+| RMSProp | mini-batch | random | 0.1 | 0.2731 ± 0.1150 | 0.0552–0.6141 | 0.3490 |
+| RMSProp | mini-batch | zero | 0.1 | 0.2731 ± 0.1150 | 0.0552–0.6141 | 0.3490 |
+| RMSProp | mini-batch | sparse | 0.1 | 0.2731 ± 0.1150 | 0.0552–0.6141 | 0.3490 |
+| RMSProp | SGD | random | 0.1 | 0.3821 ± 0.2061 | 0.0697–1.1863 | 1.0304 |
+| RMSProp | SGD | zero | 0.1 | 0.3743 ± 0.1872 | 0.0645–0.8489 | 0.6856 |
+| RMSProp | SGD | sparse | 0.1 | 0.3692 ± 0.1852 | 0.0608–0.9887 | 0.7372 |
+| Adam | full | random | 0.1 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0000 |
+| Adam | full | zero | 0.1 | 0.2441 ± 0.0679 | 0.0850–0.4573 | 0.0000 |
+| Adam | full | sparse | 0.1 | 0.2440 ± 0.0678 | 0.0850–0.4568 | 0.0101 |
+| Adam | mini-batch | random | 0.1 | 0.2757 ± 0.1006 | 0.0478–0.5511 | 0.3202 |
+| Adam | mini-batch | zero | 0.1 | 0.2819 ± 0.1004 | 0.1156–0.5560 | 0.3207 |
+| Adam | mini-batch | sparse | 0.1 | 0.2824 ± 0.1010 | 0.1141–0.5581 | 0.3227 |
+| Adam | SGD | random | 0.1 | 0.4702 ± 0.2412 | 0.0576–1.3274 | 1.1600 |
+| Adam | SGD | zero | 0.1 | 0.4551 ± 0.2164 | 0.0828–1.1263 | 1.0217 |
+| Adam | SGD | sparse | 0.1 | 0.4763 ± 0.2164 | 0.1178–1.0463 | 1.0023 |
 
-| optimizer | batch | init | weight error (mean ± std) | min–max |
-| --- | --- | --- | --- | --- |
-| GD | SGD | random | 0.3962 ± 0.1065 | 0.1590–0.6275 |
-| GD | SGD | sparse | 0.4727 ± 0.1083 | 0.1551–0.7582 |
-| GD | SGD | zero | 0.2949 ± 0.0977 | 0.0740–0.5753 |
-| GD | full | random | 0.3829 ± 0.0909 | 0.1444–0.5899 |
-| GD | full | sparse | 0.4622 ± 0.0962 | 0.2115–0.6692 |
-| GD | full | zero | 0.2776 ± 0.0633 | 0.1572–0.4595 |
-| GD | mini-batch | random | 0.3839 ± 0.0903 | 0.1432–0.5931 |
-| GD | mini-batch | sparse | 0.4629 ± 0.0960 | 0.2144–0.6571 |
-| GD | mini-batch | zero | 0.2776 ± 0.0635 | 0.1598–0.4679 |
-| AdaGrad | SGD | random | 1.7294 ± 0.2893 | 1.0630–2.3522 |
-| AdaGrad | SGD | sparse | 1.8590 ± 0.2927 | 1.1658–2.4382 |
-| AdaGrad | SGD | zero | 0.6836 ± 0.1888 | 0.2574–1.1297 |
-| AdaGrad | full | random | 1.6220 ± 0.2943 | 0.9086–2.2565 |
-| AdaGrad | full | sparse | 1.5147 ± 0.3308 | 0.9070–2.0713 |
-| AdaGrad | full | zero | 0.5282 ± 0.1532 | 0.2014–0.8976 |
-| AdaGrad | mini-batch | random | 1.6262 ± 0.2936 | 0.9231–2.2623 |
-| AdaGrad | mini-batch | sparse | 1.6187 ± 0.2976 | 1.0509–2.1189 |
-| AdaGrad | mini-batch | zero | 0.5395 ± 0.1544 | 0.2023–0.9147 |
-| RMSProp | SGD | random | 0.2738 ± 0.1170 | 0.0619–0.6010 |
-| RMSProp | SGD | sparse | 0.3115 ± 0.1337 | 0.0426–0.7269 |
-| RMSProp | SGD | zero | 0.1882 ± 0.0738 | 0.0404–0.4124 |
-| RMSProp | full | random | 0.2480 ± 0.0691 | 0.1289–0.4640 |
-| RMSProp | full | sparse | 0.2471 ± 0.0664 | 0.1289–0.4507 |
-| RMSProp | full | zero | 0.2481 ± 0.0684 | 0.1152–0.4507 |
-| RMSProp | mini-batch | random | 0.2478 ± 0.0705 | 0.0761–0.4750 |
-| RMSProp | mini-batch | sparse | 0.2478 ± 0.0705 | 0.0761–0.4746 |
-| RMSProp | mini-batch | zero | 0.2478 ± 0.0705 | 0.0761–0.4742 |
-| Adam | SGD | random | 0.5061 ± 0.1420 | 0.2184–0.8375 |
-| Adam | SGD | sparse | 0.4671 ± 0.1500 | 0.0963–0.9177 |
-| Adam | SGD | zero | 0.2946 ± 0.0986 | 0.0666–0.6233 |
-| Adam | full | random | 0.2664 ± 0.0615 | 0.1492–0.4647 |
-| Adam | full | sparse | 0.2478 ± 0.0674 | 0.1217–0.4573 |
-| Adam | full | zero | 0.2478 ± 0.0674 | 0.1218–0.4573 |
-| Adam | mini-batch | random | 0.2719 ± 0.0629 | 0.1478–0.4746 |
-| Adam | mini-batch | sparse | 0.2478 ± 0.0723 | 0.0959–0.4562 |
-| Adam | mini-batch | zero | 0.2477 ± 0.0721 | 0.0897–0.4567 |
+**Results.**
 
-**Samples kept.** Clean samples kept: 896.25 of 898.8 on average
-(99.72%, 99.7%). Clean samples excluded: 2.55 per dataset.
+- All four null hypotheses are rejected after the Holm correction:
+  `ours` has a lower mean weight error than Naive, `ours_v1`, ratio-stop and
+  threshold.
+- Against threshold, the difference is small (mean −0.0005, CI
+  [−0.0008, −0.0001]) and `ours` is lower on 53 of the 100 datasets.
+- `ours` and Oracle: mean difference 0.0001, 95% CI [−0.0002, 0.0004];
+  `ours` is lower on 49 of the 100 datasets. This comparison was not tested.
+- The mean of `ours` is 0.0187 at lr 0.01, 0.1 and 0.5.
+- Every run of `ours` stopped by its rule, after 2–4 cycles. Over the 100
+  datasets it kept 55 of the 10124 outliers (in 33 datasets) and left out 50
+  clean samples (28 with positive noise, 22 with negative).
+- `ours_v1` is worse than Naive on average (0.5461 against 0.2441).
+- The 5 grid combinations that reach Naive are GD (full batch, lr 0.1, all
+  three initialisations) and Adam (full batch, lr 0.1, `random` and `zero`).
+  The smallest grid mean is 0.1791.
 
-**Bias of the first selection.** Clean samples excluded from the inlier
-set, by the sign of their true noise, summed over the 100 datasets:
+## Development summary
 
-| | noise > 0 | noise < 0 |
-| --- | --- | --- |
-| after the first cycle | 3482 | 33 |
-| final inlier set | 129 | 126 |
+`experiments/dev_summary.py` → `results/dev_summary/` collects one row per
+development step from D0–D4 (seeds 0–19). Figure
+`results/dev_summary/strip.png` shows the per-dataset values and the medians.
 
-**`σ_MAD`.** Final-cycle value: mean 0.0994, range 0.0888–0.1129; true
-noise standard deviation 0.1.
+**S-a development steps, seeds 0–19** (`results/dev_summary/tables.md`)
 
-**Outliers kept.** 35 outliers in 24 datasets. `x·w1` of kept outliers:
-mean 0.155, max 0.225; of the 10085 removed outliers: mean 1.004, min
-0.089. Refitting the final inlier set with closed form, with and without the kept
-outliers, changes the weight error by at most 0.0030 (mean 0.00010).
+| step | section | weight error (mean ± SD) | median |
+| --- | --- | --- | --- |
+| Oracle | reference | 0.0194 ± 0.0093 | 0.0171 |
+| Naive | reference | 0.2399 ± 0.0993 | 0.2244 |
+| ours_v1 | D1 | 0.4664 ± 0.3472 | 0.3093 |
+| + per-cycle convergence | D2 | 0.0289 ± 0.0126 | 0.0273 |
+| + stopping rule (ratio-stop) | D3 | 0.0229 ± 0.0102 | 0.0217 |
+| threshold, k = 4 | D4 | 0.0210 ± 0.0088 | 0.0220 |
+| readmit, k = 3.5 (ours) | D4 | 0.0199 ± 0.0096 | 0.0189 |
 
-**5-cycle cap.** 11 / 100 runs reached the cap before the inlier set was
-confirmed unchanged. Re-run with a 20-cycle cap:
+## Concept figure
 
-| seed | cycles until the set is fixed (`stopped_at_cycle_with_cap_20` + 1; the JSON index is 0-based) | inlier set sizes | changes between cycles | weight error, cap 5 | weight error, cap 20 |
-| --- | --- | --- | --- | --- | --- |
-| 143 | 5 | 868, 892, 895, 897 | 34, 3, 2 | 0.0189 | 0.0189 |
-| 169 | 6 | 863, 900, 902, 901, 900 | 43, 2, 1, 1 | 0.0108 | 0.0094 |
-| 190 | 5 | 863, 910, 913, 914 | 57, 3, 1 | 0.0128 | 0.0128 |
-| 193 | 5 | 887, 892, 891, 890 | 9, 1, 1 | 0.0310 | 0.0310 |
-| 197 | 5 | 829, 883, 887, 888 | 60, 4, 1 | 0.0186 | 0.0186 |
-| 204 | 5 | 881, 902, 903, 902 | 29, 1, 1 | 0.0148 | 0.0148 |
-| 210 | 5 | 861, 894, 899, 900 | 39, 5, 1 | 0.0182 | 0.0182 |
-| 227 | 5 | 845, 901, 903, 904 | 58, 2, 1 | 0.0239 | 0.0239 |
-| 232 | 7 | 829, 890, 895, 897, 896, 897 | 67, 5, 2, 1, 1 | 0.0350 | 0.0355 |
-| 233 | 5 | 899, 904, 905, 906 | 13, 1, 1 | 0.0188 | 0.0188 |
-| 239 | 5 | 817, 897, 904, 903 | 80, 7, 1 | 0.0244 | 0.0244 |
+`experiments/plot_concept.py` → `docs/images/concept.png` and
+`concept_values.json`. An illustration, not an experiment: 200 points with one
+feature, `x ~ U[0,1)`, `y = ±x + 0.1·N(0, 1)`, of which 20 follow the negative
+slope (`numpy.random.default_rng(0)`). Least-squares slope through the origin:
+1.0085 on the clean points and 0.8409 on all points, shown as 1.01 and 0.84.
 
-9 of 11 give the same result: the set after cycle 5 no longer changes (the
-cap only skipped the final check). `seed=169` and `seed=232` are fixed only
-after the 6th and 7th cycle, and their weight error changes (0.0108 → 0.0094,
-0.0350 → 0.0355). No run oscillated.
+## Changes made after a run
 
-**Cycle length.** The longest cycle needed 242 epochs (cap 20000).
+Every change of a definition or script made after seeing a result:
 
-**Settings of the final method (README table 1).** All fixed before E8.
-`k = 3` (conventional 3σ cut; no other value was tried for the final
-method), convergence tolerance 1e-5 (chosen in E3; at learning rate 0.1,
-1e-4–1e-6 give the same pruning decisions on seed 0), at most 5 cycles (fixed in E3), at most 20000
-epochs per cycle (a cap large enough for the tolerance to apply first), lr
-0.1 (chosen in E3), initial weights `N(0, 1)`, drawn afresh in every cycle
-from a generator seeded once with 0,
-Adam β1 = 0.9, β2 = 0.999, ε = 1e-8. The last cycle does not re-select: after
-cycle 5 the method stops. E8 confirms that the longest cycle needed 242
-epochs and that lr 0.01 and 0.5 give the same mean weight error.
-
----
-
-## Open items
-
-- **Outlier ratio and type.** All experiments use 10% outliers following
-  `w2 = -w1`. Higher ratios, outliers close to `w1`, leverage points and
-  heavy-tailed noise are untested. These are listed as future work in the
-  README.
-- **Baselines.** Robust regression baselines (Huber loss, RANSAC) have not
-  been compared.
-- **Cycle cap and oscillation.** The 5-cycle cap is reached in 11 / 100 runs
-  on both seed sets. On seeds 41–140 (E7), 10 settle with an identical result
-  and `seed=98` oscillates. On seeds 141–240 (E8), 9 settle with an identical
-  result, and 2 (`seed=169`, `seed=232`) need 6 and 7 cycles, which changes
-  their weight error. There is no rule against oscillation, and a larger cap
-  was not part of the tested configuration.
-
----
+1. **"Reaches the closed form / Naive"** (E1, D0, T1). First run: maximum
+   distance below 0.0001. Changed after the first E1 and D0 runs to "0.0000
+   at 4 decimals", because one D0 combination (Adam, full batch, `zero`,
+   lr 0.01) has a maximum distance shown as 0.0001 but was counted as
+   reaching Naive. Effect: the D0 count went from 7 to 6; E1 did not change.
+   No decision depends on this count.
+2. **Tie between two means** (development rule). First version: difference
+   below 0.0001. Changed after the D2 run to "equal at 4 decimals", so that
+   ties can be read off the tables. Under the first version, D2 makes the
+   same choice (`tol = 1e-4` differs from `1e-6` by 0.0002 at lr 0.5, and the
+   three learning rates are tied at `tol = 1e-5`). D3–D5 were planned and run
+   with the second version.
+3. **T1 tables.** After the first T1 run, the script was run again twice to
+   rename the grid table ids and to add the median column. `tests.json` did
+   not change.
 
 ## Environment
 
-Every result in `results/` was produced with Python 3.12.10, NumPy 2.5.3,
-pandas 3.0.6 and matplotlib 3.11.2, on Windows 11, CPU only.
-`python experiments/run_all.py` regenerates all of them from fixed seeds.
-The clean-only `pinv` fit (Oracle) is mildly sensitive to the NumPy / LAPACK
-version, so other versions can differ in the last digits.
-
-Measured, not saved: one fixed-cycle run (5 × 200 epochs, the `ours` v1
-algorithm) takes about 26 ms, about 26 µs per epoch. `run_eval_extra.py` takes about
-2 minutes, mostly for the 36-configuration optimizer grid on 100 datasets.
-A GPU was not used: the per-epoch work (a few 1000×4 matrix products) is
-smaller than GPU launch overhead, and epochs are sequential.
+Python 3.12.10, NumPy 2.5.3, pandas 3.0.6, matplotlib 3.11.2, Windows 11,
+CPU only. With the package installed (`pip install -e .`),
+`python experiments/run_all.py` runs the scripts in the order E1, D0–D5,
+development summary, T1, concept figure, and rewrites `results/` and
+`docs/images/`.

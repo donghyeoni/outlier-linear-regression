@@ -1,45 +1,16 @@
-"""Closed-form linear-regression solvers (normal equation).
-
-Provides the analytic least-squares solution used as the reference baseline
-that the iterative optimizers are compared against.
-"""
+"""Closed-form least squares and the weight-error metric."""
 
 from __future__ import annotations
 
 import numpy as np
 
 
-def closed_form_solution(X: np.ndarray, y: np.ndarray,
-                         method: str = "pinv") -> np.ndarray:
-    """Solve ``min_w ||X w - y||^2`` in closed form.
-
-    Parameters
-    ----------
-    X : (N, D) ndarray
-    y : (N,) ndarray
-    method : {"pinv", "inv"}
-        ``"pinv"`` uses ``np.linalg.pinv(X) @ y`` (numerically robust; used
-        for Oracle and Naive in experiment 2).
-        ``"inv"`` uses ``np.linalg.inv(X.T @ X) @ X.T @ y`` (the explicit
-        normal equation; used in experiment 1).
-
-    Returns
-    -------
-    (D,) ndarray
-        The least-squares weight estimate.
-    """
-    if method == "pinv":
-        return np.linalg.pinv(X) @ y
-    if method == "inv":
-        return np.linalg.inv(X.T @ X) @ X.T @ y
-    raise ValueError(f"Unknown method: {method!r}. Expected 'pinv' or 'inv'.")
+def closed_form_solution(X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Least-squares solution ``argmin_w ||X w - y||^2`` via the
+    Moore-Penrose pseudo-inverse, ``pinv(X) @ y``."""
+    return np.linalg.pinv(X) @ y
 
 
-def estimation_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Mean-squared prediction error."""
-    return float(np.mean((y_true - y_pred) ** 2))
-
-
-def weight_error(w_pred: np.ndarray, w_true: np.ndarray) -> float:
-    """L2 norm of the weight-estimation error."""
-    return float(np.linalg.norm(w_pred - w_true))
+def weight_error(w_pred: np.ndarray, w_ref: np.ndarray) -> float:
+    """L2 norm of the weight-estimation error, ``||w_pred - w_ref||``."""
+    return float(np.linalg.norm(w_pred - w_ref))
